@@ -49,8 +49,11 @@ export const useProject = () => {
   const future = useRef<Props[]>([]);
   const lastPush = useRef(0);
 
+  // رقم بيزيد مع كل تعديل: عشان لو عدلت حاجة والحفظ شغال، التعديل ده ميتحسبش متحفظ
+  const version = useRef(0);
   const commit = (next: Project) => {
     projectRef.current = next;
+    version.current++;
     setProject(next);
   };
 
@@ -80,6 +83,7 @@ export const useProject = () => {
     const t = setTimeout(async () => {
       setSave("saving");
       const p = projectRef.current;
+      const v = version.current;
       try {
         const r = await fetch(`/api/projects/${p.id}`, {
           method: "PUT",
@@ -89,7 +93,8 @@ export const useProject = () => {
         if (!r.ok) throw new Error();
         store.set(p.id);
         setSave("saved");
-        setDirty(false);
+        // لو حصل تعديل وهو بيحفظ، بنسيبه "فيه تعديلات" (والحفظ اللي اتجدول بعد التعديل بيكمل)
+        if (version.current === v) setDirty(false);
       } catch {
         setSave("error");
       }

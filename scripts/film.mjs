@@ -14,6 +14,10 @@ import { tryRemove } from "./fsutil.mjs";
 const isMock = () => process.env.AI_MOCK === "1";
 export class FilmError extends Error {}
 
+// أرقام اللقطات والشخصيات جاية من المتصفح وبتدخل في أسماء الملفات،
+// فبنسيب حروف وأرقام بس (عشان محدش يبعت "../" ويكتب ملفات برا فولدر المشروع)
+export const safeId = (id) => String(id ?? "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "x";
+
 export const filmStatus = () => ({
   fal: isMock() || !!process.env.FAL_KEY,
   elevenlabs: !!process.env.ELEVENLABS_API_KEY,
@@ -153,7 +157,7 @@ export const createFilm = ({ publicDir }) => {
   // ===== 1) صورة مرجعية لشخصية =====
   const character = async ({ projectId, character, style, onProgress }) => {
     const dir = dirFor(projectId);
-    const dest = path.join(dir, `char-${character.id}-${stamp()}.jpg`);
+    const dest = path.join(dir, `char-${safeId(character.id)}-${stamp()}.jpg`);
     if (isMock()) return { image: rel(mockPng(dest.replace(/\.jpg$/, ".png"), 540, 720, character.id.length + 3)) };
     const data = await callFal(
       MODELS.image.text,
@@ -176,7 +180,7 @@ export const createFilm = ({ publicDir }) => {
     // لو المستخدم اختار صورة مرفوعة تتحرك زي ما هي، مش محتاجين نولّد
     if (shot.sourceUpload >= 0 && uploads[shot.sourceUpload]) return { keyframe: uploads[shot.sourceUpload].path };
 
-    const dest = path.join(dir, `shot-${shot.id}-key-${stamp()}.jpg`);
+    const dest = path.join(dir, `shot-${safeId(shot.id)}-key-${stamp()}.jpg`);
     if (isMock()) {
       const [w, h] = mockSize(format);
       return { keyframe: rel(mockPng(dest.replace(/\.jpg$/, ".png"), w, h, shot.id.charCodeAt(0) + shot.id.length)) };
@@ -277,7 +281,7 @@ export const createFilm = ({ publicDir }) => {
       if (r.status === 401) throw new FilmError("مفتاح ElevenLabs غلط");
       if (!r.ok) throw new FilmError(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 200)}`);
       const data = await r.json();
-      const dest = path.join(dir, `shot-${shot.id}-voice-${stamp()}.mp3`);
+      const dest = path.join(dir, `shot-${safeId(shot.id)}-voice-${stamp()}.mp3`);
       fs.writeFileSync(dest, Buffer.from(data.audio_base64, "base64"));
       const secs = await duration(dest);
       const words = data.alignment?.characters?.length ? wordsFromAlignment(data.alignment) : await timeWords(dest, text, secs);
@@ -287,7 +291,7 @@ export const createFilm = ({ publicDir }) => {
     // صوت الويندوز (مجاني، وبيستخدم في وضع التجربة كمان)
     onProgress?.("بيسجّل الصوت (ويندوز)");
     const txt = path.join(dir, `tmp-${stamp()}.txt`);
-    const dest = path.join(dir, `shot-${shot.id}-voice-${stamp()}.wav`);
+    const dest = path.join(dir, `shot-${safeId(shot.id)}-voice-${stamp()}.wav`);
     fs.writeFileSync(txt, text, "utf8");
     try {
       await run("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(path.dirname(publicDir), "scripts", "tts.ps1"), "-TextFile", txt, "-Out", dest]);
@@ -303,7 +307,7 @@ export const createFilm = ({ publicDir }) => {
     if (!shot.keyframe) throw new FilmError("ولّد صورة اللقطة الأول");
     const dir = dirFor(projectId);
     const secs = Math.min(MODELS.clipSeconds.max, Math.max(MODELS.clipSeconds.min, Math.round(shot.duration)));
-    const dest = path.join(dir, `shot-${shot.id}-clip-${stamp()}.mp4`);
+    const dest = path.join(dir, `shot-${safeId(shot.id)}-clip-${stamp()}.mp4`);
 
     if (isMock()) {
       // فيديو ثابت من الصورة بـ FFmpeg (عشان نجرب الخط كله من غير فلوس)
@@ -396,7 +400,7 @@ export const createFilm = ({ publicDir }) => {
     if (!clipFile) throw new FilmError("ولّد فيديو اللقطة الأول");
     if (!voiceFile) throw new FilmError("سجّل صوت اللقطة الأول");
     const dir = dirFor(projectId);
-    const dest = path.join(dir, `shot-${shot.id}-lips-${stamp()}.mp4`);
+    const dest = path.join(dir, `shot-${safeId(shot.id)}-lips-${stamp()}.mp4`);
     const of = `${shot.clip}|${shot.voice}`;
 
     if (isMock()) {

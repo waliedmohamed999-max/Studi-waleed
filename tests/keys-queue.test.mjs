@@ -142,3 +142,13 @@ describe("مسح الملفات", () => {
     expect(() => removeFile(f)).not.toThrow(); // مش موجود أصلًا
   });
 });
+
+describe("أسماء الملفات من المتصفح", () => {
+  it("مفيش طريقة تطلع برا فولدر المشروع", async () => {
+    const { safeId } = await import("../scripts/film.mjs");
+    expect(safeId("../../evil")).toBe("evil");
+    expect(safeId("a/b\c:d")).toBe("abcd");
+    expect(safeId("")).toBe("x");
+    expect(safeId("shot_1-a")).toBe("shot_1-a");
+  });
+});

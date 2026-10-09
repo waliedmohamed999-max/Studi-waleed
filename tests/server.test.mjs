@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { removeFile } from "../scripts/fsutil.mjs";
@@ -73,6 +74,16 @@ describe("الإعدادات", () => {
   it("المفتاح البايظ بيترفض", async () => {
     const { status } = await api("/api/settings", { method: "PUT", body: { keys: { FAL_KEY: "a\nAI_MOCK=0" } } });
     expect(status).toBe(400);
+  });
+
+  it("موقع بيغير عنوانه لجهازك (DNS rebinding) مايقدرش يقرا حاجة", async () => {
+    const status = await new Promise((resolve, reject) => {
+      http.get({ host: "127.0.0.1", port: PORT, path: "/api/projects", headers: { Host: "evil.example:4199" } }, (r) => {
+        r.resume();
+        resolve(r.statusCode);
+      }).on("error", reject);
+    });
+    expect(status).toBe(403);
   });
 
   it("موقع تاني مفتوح في المتصفح مايقدرش يغير المفاتيح", async () => {

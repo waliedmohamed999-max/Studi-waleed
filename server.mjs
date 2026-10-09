@@ -32,8 +32,11 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 
 const app = express();
 
-// السيرفر بيقبل طلبات تعديل من الاستوديو بس (مش من أي موقع تاني مفتوح في المتصفح)
+// السيرفر بيقبل طلبات من الاستوديو بس (مش من أي موقع تاني مفتوح في المتصفح)
+const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 app.use((req, res, next) => {
+  // اسم السيرفر لازم يكون localhost: ده بيمنع "DNS rebinding" (موقع بيغير عنوانه لجهازك عشان يقرا بياناتك)
+  if (!localHost.test(String(req.headers.host ?? ""))) return res.status(403).json({ error: "الطلب ده مش جاي من الاستوديو" });
   const origin = req.headers.origin;
   if (req.method !== "GET" && origin && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
     return res.status(403).json({ error: "الطلب ده مش جاي من الاستوديو" });
@@ -117,7 +120,8 @@ app.get("/api/assets", (_req, res) => {
   res.json(list);
 });
 
-app.use(express.json({ limit: "5mb" }));
+// دفعات الشيت الكبيرة (مئات الفيديوهات) ممكن تبقى كام ميجا
+app.use(express.json({ limit: "50mb" }));
 
 // ===== الإعدادات: مفاتيح الخدمات =====
 const keyStore = createKeyStore({ envFile });
@@ -424,6 +428,8 @@ const filmRelease = () => {
 const startFilmJob = (res, fn) => {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const job = { status: "running", step: "مستني دوره", result: null, error: null, startedAt: Date.now() };
+  // العمليات اللي خلصت من أكتر من ساعتين بتتمسح من الذاكرة (الاستوديو بيكون قراها من بدري)
+  for (const [k, j] of filmJobs) if (j.status !== "running" && Date.now() - j.startedAt > 2 * 3600 * 1000) filmJobs.delete(k);
   filmJobs.set(id, job);
   res.json({ jobId: id });
   (async () => {

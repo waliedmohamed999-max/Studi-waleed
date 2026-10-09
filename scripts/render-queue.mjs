@@ -86,7 +86,8 @@ export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(out
     working = true;
     try {
       for (;;) {
-        const batch = batches.find((b) => !b.canceled && b.items.some((i) => i.status === "pending"));
+        // الأقدم الأول (الدفعات الجديدة بتتحط في أول القايمة)
+        const batch = batches.findLast((b) => !b.canceled && b.items.some((i) => i.status === "pending"));
         if (!batch) break;
         const item = batch.items.find((i) => i.status === "pending");
         item.status = "rendering";
