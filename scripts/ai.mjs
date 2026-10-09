@@ -234,13 +234,16 @@ Shots (technical limits of the pipeline)
 Also write
 - title: a short Arabic title for the project.
 - style: one English paragraph that defines the visual language of the whole film (look, lighting, color grade, lens choices, texture), reused for every shot.
-- cta and ctaSub: a short Arabic call-to-action for the end card and a supporting line (contact, handle or slogan if the client gave one; otherwise a short tagline). Empty strings if the video type doesn't need one.`,
+- cta and ctaSub: a short Arabic call-to-action for the end card and a supporting line (contact, handle or slogan if the client gave one; otherwise a short tagline). Empty strings if the video type doesn't need one.
+- musicPrompt: one English sentence describing instrumental background music for the whole film (genre, mood, instruments, tempo), fitting the Saudi audience (e.g. oud, qanun, Khaleeji percussion, or modern cinematic/corporate when that fits better). No vocals.
+- sfxPrompt per shot: a short English description of the ambient sound or sound effect that makes the shot feel real (e.g. "espresso machine hissing, cafe ambience", "desert wind"), or empty when the shot needs none.`,
     user: content,
     schema: obj({
       title: str,
       style: str,
       cta: str,
       ctaSub: str,
+      musicPrompt: str,
       characters: { type: "array", items: obj({ id: str, name: str, description: str }) },
       shots: {
         type: "array",
@@ -254,6 +257,7 @@ Also write
           sourceUpload: { type: "integer" },
           voiceLine: str,
           onScreenText: str,
+          sfxPrompt: str,
         }),
       },
     }),
@@ -314,12 +318,13 @@ const mockFilm = (uploadCount) => ({
   style: "Warm cinematic look, golden hour light, shallow depth of field, 35mm and 85mm lenses, soft film contrast, earthy beige and amber palette.",
   cta: "زورونا اليوم",
   ctaSub: "الرياض · حي الملقا",
+  musicPrompt: "Warm acoustic oud with soft percussion, calm morning mood, 90 bpm",
   characters: [{ id: "c1", name: "فهد", description: "Saudi man in his early 30s, short trimmed beard, white thobe, red-and-white shemagh, calm confident expression" }],
   shots: [
-    { purpose: "لقطة افتتاحية للرياض وقت الشروق", duration: 4, imagePrompt: "Wide aerial view of Riyadh skyline at sunrise, golden haze, Kingdom Centre in the distance", motionPrompt: "Slow drone push-in toward the skyline", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "كل يوم يبدأ بفنجال", onScreenText: "" },
-    { purpose: "فهد يدخل الكافيه", duration: 5, imagePrompt: "Medium shot of a Saudi man entering a modern specialty coffee shop, warm interior light", motionPrompt: "Handheld follow shot as he walks to the counter", characters: ["c1"], refUploads: uploadCount ? [0] : [], sourceUpload: -1, voiceLine: "وفي مكان يعرف وش تحب", onScreenText: "" },
-    { purpose: "تفاصيل تحضير القهوة", duration: 4, imagePrompt: "Extreme close-up of espresso pouring into a ceramic cup, steam rising, dark wood counter", motionPrompt: "Slow motion pour with rack focus", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "", onScreenText: "محمّصة بحب" },
-    { purpose: "فهد يستمتع بالقهوة", duration: 5, imagePrompt: "Close-up of the man smiling while holding a coffee cup by the window, golden light", motionPrompt: "Slow dolly-in on his face as he takes a sip", characters: ["c1"], refUploads: [], sourceUpload: -1, voiceLine: "طعم يخلي صباحك غير", onScreenText: "" },
+    { purpose: "لقطة افتتاحية للرياض وقت الشروق", duration: 4, imagePrompt: "Wide aerial view of Riyadh skyline at sunrise, golden haze, Kingdom Centre in the distance", motionPrompt: "Slow drone push-in toward the skyline", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "كل يوم يبدأ بفنجال", onScreenText: "", sfxPrompt: "early morning city ambience, birds" },
+    { purpose: "فهد يدخل الكافيه", duration: 5, imagePrompt: "Medium shot of a Saudi man entering a modern specialty coffee shop, warm interior light", motionPrompt: "Handheld follow shot as he walks to the counter", characters: ["c1"], refUploads: uploadCount ? [0] : [], sourceUpload: -1, voiceLine: "وفي مكان يعرف وش تحب", onScreenText: "", sfxPrompt: "" },
+    { purpose: "تفاصيل تحضير القهوة", duration: 4, imagePrompt: "Extreme close-up of espresso pouring into a ceramic cup, steam rising, dark wood counter", motionPrompt: "Slow motion pour with rack focus", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "", onScreenText: "محمّصة بحب", sfxPrompt: "espresso machine hissing, coffee pouring" },
+    { purpose: "فهد يستمتع بالقهوة", duration: 5, imagePrompt: "Close-up of the man smiling while holding a coffee cup by the window, golden light", motionPrompt: "Slow dolly-in on his face as he takes a sip", characters: ["c1"], refUploads: [], sourceUpload: -1, voiceLine: "طعم يخلي صباحك غير", onScreenText: "", sfxPrompt: "" },
   ],
 });
 

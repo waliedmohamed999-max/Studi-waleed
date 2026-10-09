@@ -11,6 +11,7 @@ import { AiError, aiStatus, analyzeTalk, generateVideo, improveScene, planFilm, 
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
+import { generateSound, SoundError } from "./scripts/sound.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 // مفاتيح الخدمات الخارجية (زي ELEVENLABS_API_KEY) بتتحط في ملف .env جنب السيرفر
@@ -300,6 +301,22 @@ app.post(
   ),
 );
 
+// ===== توليد مزيكا ومؤثرات صوتية (ElevenLabs) =====
+app.post("/api/sound/generate", (req, res) => {
+  const b = req.body ?? {};
+  const kind = b.kind === "sfx" ? "sfx" : "music";
+  if (!process.env.ELEVENLABS_API_KEY && process.env.AI_MOCK !== "1") {
+    return res.status(400).json({ error: "حط ELEVENLABS_API_KEY في ملف .env عشان توليد المزيكا والمؤثرات" });
+  }
+  startFilmJob(res, async (step) => {
+    step(kind === "music" ? "بيألّف المزيكا" : "بيعمل المؤثر");
+    try {
+      return await generateSound({ kind, prompt: clip(b.prompt, 1000), seconds: Number(b.seconds), loop: !!b.loop, uploadsDir, publicDir });
+    } catch (e) {
+      throw e instanceof SoundError ? new FilmError(e.message) : e;
+    }
+  });
+});
 // ===== تنضيف الصوت (دوشة + همهمة + علو ثابت) =====
 app.post("/api/audio/clean", (req, res) => {
   const file = publicPath(req.body?.path);

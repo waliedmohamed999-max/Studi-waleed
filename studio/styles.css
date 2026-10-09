@@ -2154,3 +2154,52 @@ details.ae-step > summary {
   font-size: var(--fs-s);
   color: var(--ok);
 }
+
+/* ===== مزيكا الفيلم ===== */
+.film-music {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-s);
+  padding: 8px;
+}
+
+/* ===== أداة الصوتيات ===== */
+.seg-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 3px;
+  gap: 3px;
+}
+.seg-toggle button {
+  border: none;
+  background: transparent;
+  border-radius: var(--r-s);
+  padding: 6px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.seg-toggle button.on {
+  background: var(--accent);
+  color: #fff;
+}
+button.chip {
+  cursor: pointer;
+}
+.sound-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-s);
+  padding: 8px;
+}
+.sound-item small {
+  color: var(--muted);
+}

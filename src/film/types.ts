@@ -28,10 +28,12 @@ export type FilmShot = {
   voice: string; // ملف صوت التعليق
   voiceDuration: number;
   words: Caption[]; // توقيت كل كلمة في التعليق (بالمللي ثانية من أول اللقطة)
+  sfxPrompt: string; // وصف الصوت المحيط أو المؤثر (إنجليزي)
+  sfx: string; // ملف المؤثر المتولد
 };
 
 // العمليات الطويلة اللي شغالة على السيرفر (بتتحفظ عشان لو قفلت الصفحة ترجع تتابعها)
-export type FilmJob = { kind: "plan" | "character" | "keyframe" | "voice" | "clip"; target: string; jobId: string };
+export type FilmJob = { kind: "plan" | "character" | "keyframe" | "voice" | "clip" | "music" | "sfx"; target: string; jobId: string };
 
 export type FilmProps = {
   // الفكرة
@@ -54,6 +56,8 @@ export type FilmProps = {
   voiceVolume: number;
   music: string;
   musicVolume: number;
+  musicPrompt: string; // وصف المزيكا (Claude بيكتبه مع السيناريو)
+  sfxVolume: number;
   // الشكل
   format: string;
   quality: string; // cinematic | balanced
@@ -91,4 +95,6 @@ export const emptyShot = (id: string): FilmShot => ({
   voice: "",
   voiceDuration: 0,
   words: [],
+  sfxPrompt: "",
+  sfx: "",
 });

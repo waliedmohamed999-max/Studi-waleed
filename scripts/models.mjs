@@ -35,4 +35,8 @@ export const MODELS = {
     // سعر الـ API لكل 1000 حرف لـ eleven_v4 (السعر الأساسي؛ عليه خصم مؤقت لحد 12 أكتوبر)
     pricePer1kChars: 0.08,
   },
+  sound: {
+    // music_v2_5 أحدث موديل مزيكا في ElevenLabs (لو مش متاح في باقتك، الكود بيرجع للأساسي لوحده)
+    musicModel: "music_v2_5",
+  },
 };

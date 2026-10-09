@@ -27,7 +27,8 @@ type Plan = {
   cta: string;
   ctaSub: string;
   characters: { id: string; name: string; description: string }[];
-  shots: Omit<FilmShot, "id" | "keyframe" | "clip" | "clipDuration" | "voice" | "voiceDuration" | "words">[];
+  musicPrompt: string;
+  shots: Omit<FilmShot, "id" | "keyframe" | "clip" | "clipDuration" | "voice" | "voiceDuration" | "words" | "sfx">[];
 };
 
 const videoTypes = ["إعلان تجاري", "فيلم قصير", "تقديم شركة", "تقديم منتج", "قصة ملهمة", "محتوى تعليمي", "تهنئة / مناسبة وطنية", "إعلان عقاري"];
@@ -39,7 +40,7 @@ const dialects = [
   { value: "eg", label: "مصري" },
   { value: "en", label: "English" },
 ];
-const kindLabel: Record<FilmJob["kind"], string> = { plan: "السيناريو", character: "صورة الشخصية", keyframe: "صورة اللقطة", voice: "الصوت", clip: "الفيديو" };
+const kindLabel: Record<FilmJob["kind"], string> = { plan: "السيناريو", character: "صورة الشخصية", keyframe: "صورة اللقطة", voice: "الصوت", clip: "الفيديو", music: "المزيكا", sfx: "المؤثر الصوتي" };
 
 const money = (n: number) => `$${n.toFixed(n < 1 ? 2 : 1)}`;
 const clampDur = (n: number, min = 3, max = 15) => Math.min(max, Math.max(min, Math.round(Number(n) || 5)));
@@ -83,7 +84,9 @@ export const FilmPanel: React.FC<{
     if (running(kind, target)) return;
     setError(null);
     try {
-      const r = await fetch(`/api/film/${kind}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, ...body }) });
+      // المزيكا والمؤثرات ليهم endpoint مشترك
+      const url = kind === "music" || kind === "sfx" ? "/api/sound/generate" : `/api/film/${kind}`;
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, kind, ...body }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
       patchFilm((f) => ({ jobs: [...(f.jobs ?? []), { kind, target, jobId: data.jobId }] }));
@@ -98,6 +101,8 @@ export const FilmPanel: React.FC<{
     if (job.kind === "character") return patchChar(job.target, { image: String(result.image) });
     if (job.kind === "keyframe") return patchShot(job.target, { keyframe: String(result.keyframe), clip: "", clipDuration: 0 });
     if (job.kind === "clip") return patchShot(job.target, { clip: String(result.clip), clipDuration: Number(result.clipDuration) });
+    if (job.kind === "music") return patchFilm(() => ({ music: String(result.path) }));
+    if (job.kind === "sfx") return patchShot(job.target, { sfx: String(result.path) });
     if (job.kind === "voice") {
       const voiceDuration = Number(result.voiceDuration) || 0;
       return patchFilm((f) => ({
@@ -163,6 +168,14 @@ export const FilmPanel: React.FC<{
     start("voice", s.id, { shot: s, prevText: p.shots[i - 1]?.voiceLine ?? "", nextText: p.shots[i + 1]?.voiceLine ?? "", provider: p.voiceProvider, voiceId: p.voiceId, model: p.voiceModel });
   };
   const genClip = (s: FilmShot) => start("clip", s.id, { shot: s, quality: p.quality, style: p.style });
+  // المزيكا على طول الفيلم + ثانيتين، والمؤثر على طول اللقطة
+  const filmSeconds = () => p.shots.reduce((sum, s) => sum + clampDur(s.duration), 0) + (p.cta || p.logo ? 3 : 0);
+  const genMusic = () =>
+    start("music", "music", { prompt: p.musicPrompt || "Warm cinematic instrumental background music, modern, uplifting", seconds: filmSeconds() + 2 });
+  const genSfx = (s: FilmShot) => start("sfx", s.id, { prompt: s.sfxPrompt, seconds: clampDur(s.duration) });
+  const soundOk = !!(status?.elevenlabs || status?.mock);
+  const needMusic = !!p.musicPrompt && (!p.music || p.music.startsWith("demo/"));
+  const needSfx = p.shots.filter((s) => s.sfxPrompt.trim() && !s.sfx);
 
   // ===== الحالة والتكلفة =====
   const tier = status?.tiers[p.quality];
@@ -243,8 +256,15 @@ export const FilmPanel: React.FC<{
       .filter((s) => s.keyframe && (!s.clip || clipOutdated(s)) && !voicePending(s) && !busy("clip", s.id))
       .forEach((s) => kick(`clip:${s.id}:${s.keyframe}:${clampDur(s.duration)}`, () => genClip(s)));
 
-    // 6) خلص؟ صدّر
-    const done = p.shots.every((s) => s.keyframe && s.clip && !clipOutdated(s) && !voicePending(s)) && !(p.jobs ?? []).length;
+    // 6) المزيكا والمؤثرات (لو فيه مفتاح ElevenLabs)
+    const clipsReady = p.shots.every((s) => s.keyframe && s.clip && !clipOutdated(s) && !voicePending(s));
+    if (clipsReady && soundOk) {
+      if (needMusic && !busy("music", "music")) kick(`music:${p.musicPrompt}`, genMusic);
+      needSfx.filter((s) => !busy("sfx", s.id)).forEach((s) => kick(`sfx:${s.id}:${s.sfxPrompt}`, () => genSfx(s)));
+    }
+    // 7) خلص؟ صدّر
+    const soundsDone = !soundOk || (!needMusic && !needSfx.length);
+    const done = clipsReady && soundsDone && !(p.jobs ?? []).length;
     if (done) {
       kick("export", async () => {
         try {
@@ -269,7 +289,9 @@ export const FilmPanel: React.FC<{
           ? "التعليق الصوتي"
           : needClip.length
             ? `الفيديوهات (${p.shots.length - needClip.length}/${p.shots.length})`
-            : "بيصدّر";
+            : soundOk && (needMusic || needSfx.length)
+              ? "المزيكا والمؤثرات"
+              : "بيصدّر";
 
   const autoBox = p.auto ? (
     <div className="auto-run" role="status">
@@ -523,6 +545,22 @@ export const FilmPanel: React.FC<{
                         <span>التعليق الصوتي</span>
                         <textarea rows={2} value={s.voiceLine} onChange={(e) => patchShot(s.id, { voiceLine: e.target.value, voice: "", voiceDuration: 0, words: [] })} />
                       </label>
+                      <div className="field">
+                        <span>صوت الجو أو المؤثر (اختياري)</span>
+                        <div className="scene-ai-row">
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={s.sfxPrompt}
+                            placeholder="e.g. cafe ambience, espresso machine"
+                            onChange={(e) => patchShot(s.id, { sfxPrompt: e.target.value, sfx: "" })}
+                          />
+                          <button type="button" className="btn-small" onClick={() => genSfx(s)} disabled={!s.sfxPrompt.trim() || !soundOk || !!running("sfx", s.id)}>
+                            🔊 {running("sfx", s.id) ? "…" : s.sfx ? "تاني" : "ولّد"}
+                          </button>
+                        </div>
+                        {s.sfx && <audio src={`/${s.sfx}`} controls preload="none" className="asset-audio" />}
+                      </div>
                       <label className="field">
                         <span>كلام على الشاشة (اختياري)</span>
                         <input type="text" value={s.onScreenText} onChange={(e) => patchShot(s.id, { onScreenText: e.target.value })} />
@@ -613,6 +651,26 @@ export const FilmPanel: React.FC<{
             <span className="film-sub">⑤ الإنتاج (بالترتيب)</span>
             {autoButton}
             <span className="hint">أو خطوة خطوة:</span>
+            <div className="film-music">
+              <span className="film-sub">🎵 المزيكا والمؤثرات</span>
+              <textarea
+                rows={2}
+                dir="ltr"
+                value={p.musicPrompt}
+                placeholder="Warm oud and soft Khaleeji percussion, uplifting, 95 bpm"
+                onChange={(e) => patchFilm(() => ({ musicPrompt: e.target.value }))}
+              />
+              <div className="brand-buttons">
+                <button type="button" className="btn-small btn-ai" onClick={genMusic} disabled={!soundOk || !!running("music", "music")}>
+                  🎵 {running("music", "music") ? stepOf("music", "music") : `ولّد مزيكا (${filmSeconds() + 2} ثانية)`}
+                </button>
+                <button type="button" className="btn-small" onClick={() => needSfx.forEach(genSfx)} disabled={!soundOk || !needSfx.length}>
+                  🔊 المؤثرات ({needSfx.length})
+                </button>
+              </div>
+              {!soundOk && <div className="hint">محتاج مفتاح ElevenLabs. وبيستهلك من رصيدك هناك.</div>}
+              {p.music && !p.music.startsWith("demo/") && <audio src={`/${p.music}`} controls preload="none" className="asset-audio" />}
+            </div>
             {needChar.length > 0 && (
               <button type="button" className="btn-small" disabled={!status?.fal} onClick={() => bulk("صور الشخصيات", imgCost(needChar.length), needChar, () => needChar.forEach(genCharacter))}>
                 1. صور الشخصيات ({needChar.length}) ~{money(imgCost(needChar.length))}
@@ -665,6 +723,7 @@ const planToFilm = (plan: Plan, f: FilmProps): Partial<FilmProps> => {
     title: plan.title,
     style: plan.style,
     cta: f.cta || plan.cta,
+    musicPrompt: plan.musicPrompt ?? "",
     ctaSub: f.ctaSub || plan.ctaSub,
     characters: chars,
     shots: (plan.shots ?? []).map((s) => ({
@@ -678,6 +737,7 @@ const planToFilm = (plan: Plan, f: FilmProps): Partial<FilmProps> => {
       sourceUpload: s.sourceUpload >= 0 && s.sourceUpload < nUp ? s.sourceUpload : -1,
       voiceLine: s.voiceLine ?? "",
       onScreenText: s.onScreenText ?? "",
+      sfxPrompt: s.sfxPrompt ?? "",
     })),
   };
 };

@@ -18,6 +18,7 @@ import { CaptionsPanel } from "./CaptionsPanel";
 import { AiCard } from "./AiCard";
 import { FilmPanel } from "./FilmPanel";
 import { AutoEditPanel } from "./AutoEditPanel";
+import { SoundTool } from "./SoundTool";
 import { autoEditSegments, edlInput, type AutoEditProps } from "../src/AutoEditVideo";
 import { remapWords } from "../src/autoedit/edl";
 import { BatchCard } from "./BatchCard";
@@ -62,10 +63,11 @@ const saveText: Record<SaveState, string> = { idle: "", dirty: "فيه تعدي�
 // (الصور زي اللوجو والخلفية بتعتبر "شكل"، والصور اللي جوه المشاهد موجودة في محرر المشاهد نفسه)
 const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "captions", "slides", "text", "lines", "media"]);
 
-type Tool = "content" | "ai" | "project" | "brand" | "batch" | "export" | "inspect";
+type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "inspect";
 const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[] = [
   { id: "content", label: "المحتوى", icon: <IconLayers size={20} /> },
   { id: "ai", label: "ذكاء", icon: <IconSparkles size={20} /> },
+  { id: "sound", label: "الصوتيات", icon: <IconMusic size={20} /> },
   { id: "project", label: "المشاريع", icon: <IconFolder size={20} /> },
   { id: "brand", label: "البراند", icon: <IconPalette size={20} /> },
   { id: "batch", label: "الشيت", icon: <IconTable size={20} /> },
@@ -75,6 +77,7 @@ const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[
 const toolTitle: Record<Tool, string> = {
   content: "المحتوى",
   ai: "الذكاء الاصطناعي",
+  sound: "مزيكا ومؤثرات بالذكاء الاصطناعي",
   project: "المشاريع",
   brand: "هوية البراند",
   batch: "فيديوهات كتير من شيت",
@@ -408,6 +411,7 @@ export const App: React.FC = () => {
   const toolBody: Record<Tool, ReactNode> = {
     content: contentFields.length ? renderGroups(contentFields) : <p className="empty-note">القالب ده كل إعداداته في الخصائص.</p>,
     ai: <AiCard onCreate={(name, aiProps) => newProject("Project", name, aiProps)} />,
+    sound: <SoundTool canSetMusic={video.fields.some((f) => f.key === "music")} onUseMusic={(path) => updateProps({ music: path })} />,
     project: <ProjectCard project={project} save={save} onRename={rename} onNew={newProject} onOpen={openProject} onDelete={deleteProject} />,
     brand: <BrandCard video={video} props={props} onApply={updateProps} />,
     batch: (

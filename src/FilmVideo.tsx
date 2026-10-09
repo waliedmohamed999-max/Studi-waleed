@@ -256,6 +256,17 @@ export const FilmVideo: React.FC<FilmProps> = (p) => {
             </Sequence>
           ) : null,
         )}
+      {/* المؤثرات والجو: كل لقطة بصوتها، بـ fade صغير في الأول والآخر */}
+      {p.shots.map((s, i) => {
+        if (!s.sfx) return null;
+        const len = shotFrames(s);
+        const v = Math.max(0, Math.min(100, p.sfxVolume ?? 45)) / 100;
+        return (
+          <Sequence key={`sfx-${s.id}`} from={starts[i]} durationInFrames={len}>
+            <Html5Audio src={assetSrc(s.sfx)} loop volume={(f) => v * Math.min(1, f / 6, (len - f) / 8)} />
+          </Sequence>
+        );
+      })}
       {p.music && <Html5Audio src={assetSrc(p.music)} loop volume={musicVol} />}
     </AbsoluteFill>
   );
