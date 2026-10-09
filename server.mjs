@@ -10,6 +10,7 @@ import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath }
 import { AiError, aiStatus, analyzeTalk, generateVideo, improveScene, planFilm, suggestBrand, writeScript } from "./scripts/ai.mjs";
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
+import { cleanAudio } from "./scripts/audio.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 // مفاتيح الخدمات الخارجية (زي ELEVENLABS_API_KEY) بتتحط في ملف .env جنب السيرفر
@@ -299,6 +300,17 @@ app.post(
   ),
 );
 
+// ===== تنضيف الصوت (دوشة + همهمة + علو ثابت) =====
+app.post("/api/audio/clean", (req, res) => {
+  const file = publicPath(req.body?.path);
+  if (!file) return res.status(404).json({ error: "الملف مش موجود" });
+  const strength = Math.min(1, Math.max(0, Number(req.body?.strength ?? 0.6)));
+  startFilmJob(res, async (step) => {
+    const name = `clean-${Date.now().toString(36)}.wav`;
+    await cleanAudio(file, path.join(uploadsDir, name), { strength, onProgress: step });
+    return { path: `uploads/${name}` };
+  });
+});
 // ===== المونتاج الأوتوماتيك: فين فيه كلام فعلًا (من مستوى الصوت) =====
 app.post("/api/autoedit/speech", async (req, res) => {
   const file = publicPath(req.body?.path);
@@ -492,7 +504,7 @@ app.post("/api/queue", (req, res) => {
   const batch = queue.add({
     name,
     items: items.map((i) => ({ name: String(i.name ?? "video"), videoId: i.videoId, props: i.props })),
-    settings: { format, quality: settings.quality === "draft" ? "draft" : "high", thumbnail: !!settings.thumbnail },
+    settings: { format, quality: settings.quality === "draft" ? "draft" : "high", thumbnail: !!settings.thumbnail, loudness: settings.loudness !== false },
   });
   res.json(batch);
 });

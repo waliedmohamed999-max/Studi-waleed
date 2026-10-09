@@ -6,6 +6,7 @@ import { edlInput, type AutoEditProps } from "../src/AutoEditVideo";
 import { AssetPicker } from "./fields";
 import { sendToQueue, type ExportSettings } from "./ExportCard";
 import { useAiStatus } from "./ai";
+import { CleanAudio } from "./CleanAudio";
 
 type Props = Record<string, unknown>;
 const sec = (ms: number) => {
@@ -147,9 +148,10 @@ export const AutoEditPanel: React.FC<{
         <AssetPicker
           kind="video"
           value={p.media}
-          onChange={(v) => updateProps({ media: v, mediaDuration: 0, words: [], speech: [], cuts: [], emphasis: [], highlights: [], range: null })}
+          onChange={(v) => updateProps({ media: v, mediaDuration: 0, cleanAudio: "", words: [], speech: [], cuts: [], emphasis: [], highlights: [], range: null })}
         />
         <div className="hint">صوّر نفسك وانت بتتكلم عادي، حتى لو غلطت أو سكتّ أو عدت جملة. الاستوديو هيشيل ده كله.</div>
+        {p.media && <CleanAudio media={p.media} clean={p.cleanAudio} onChange={(v) => updateProps({ cleanAudio: v })} />}
       </div>
 
       {/* ② التفريغ */}

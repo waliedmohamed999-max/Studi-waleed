@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
 import { makeCancelSignal, renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import { normalizeVideoLoudness } from "./audio.mjs";
 
 // ===== الصيغ والجودة =====
 export const formats = {
@@ -83,6 +84,14 @@ export const createQueue = ({ root, publicDir, outDir }) => {
             ...qualitySettings(batch.settings.format, batch.settings.quality),
             onProgress: ({ progress }) => (item.progress = progress),
           });
+          // علو الصوت على معيار المنصات (-14 LUFS)، عشان الفيديو ميطلعش واطي أو عالي عن غيره
+          if (batch.settings.loudness && ext !== "gif") {
+            try {
+              await normalizeVideoLoudness(file);
+            } catch (e) {
+              console.error("loudness:", e.message); // الفيديو نفسه سليم حتى لو الضبط فشل
+            }
+          }
           const rel = path.relative(outDir, file).split(path.sep).map(encodeURIComponent).join("/");
           item.file = `/out/${rel}`;
 

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createTikTokStyleCaptions, parseSrt, serializeSrt, type Caption } from "@remotion/captions";
 import { callAi, dialects, useAiStatus, type AiScript, type Dialect } from "./ai";
+import { CleanAudio } from "./CleanAudio";
 
 // ===== Claude بيكتب سكريبت التعليق الصوتي =====
 const ScriptAi: React.FC<{ onScript: (text: string) => void }> = ({ onScript }) => {
@@ -171,7 +172,7 @@ export const CaptionsPanel: React.FC<{
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      updateProps({ media: data.path, mediaDuration: data.duration, captions: [] });
+      updateProps({ media: data.path, mediaDuration: data.duration, cleanAudio: "", captions: [] });
       setBusy(null);
       if (autoCaption && whisperReady) await transcribe(data.path);
     } catch (e) {
@@ -224,6 +225,7 @@ export const CaptionsPanel: React.FC<{
 
   return (
     <div className="captions-panel">
+      {media && <CleanAudio media={media} clean={String(props.cleanAudio ?? "")} onChange={(v) => updateProps({ cleanAudio: v })} />}
       {/* ===== التعليق الصوتي ===== */}
       <details className="subpanel" open={!media}>
         <summary>🎙️ تعليق صوتي من نص</summary>

@@ -1,14 +1,14 @@
 // كارت التصدير: الصيغة والجودة والصورة المصغرة، وطابور التصدير بكل الدفعات
 import { useEffect, useState } from "react";
 
-export type ExportSettings = { format: "mp4" | "webm" | "gif"; quality: "high" | "draft"; thumbnail: boolean };
+export type ExportSettings = { format: "mp4" | "webm" | "gif"; quality: "high" | "draft"; thumbnail: boolean; loudness: boolean };
 export type QueueItem = { videoId: string; name: string; props: Record<string, unknown> };
 
 type BatchItem = { name: string; status: "pending" | "rendering" | "done" | "error" | "canceled"; progress: number; file: string | null; thumb: string | null; error: string | null };
 type Batch = { id: string; name: string; createdAt: number; settings: ExportSettings; folder: string; status: string; done: number; total: number; items: BatchItem[] };
 type ExportFile = { name: string; url: string; time: number };
 
-export const defaultExportSettings: ExportSettings = { format: "mp4", quality: "high", thumbnail: false };
+export const defaultExportSettings: ExportSettings = { format: "mp4", quality: "high", thumbnail: false, loudness: true };
 
 const itemText: Record<BatchItem["status"], string> = {
   pending: "مستني دوره",
@@ -52,6 +52,10 @@ export const ExportSettingsFields: React.FC<{ value: ExportSettings; onChange: (
     <label className="check">
       <input type="checkbox" checked={value.thumbnail} onChange={(e) => onChange({ ...value, thumbnail: e.target.checked })} />
       اعمل صورة مصغرة (Thumbnail) مع كل فيديو
+    </label>
+    <label className="check">
+      <input type="checkbox" checked={value.loudness} onChange={(e) => onChange({ ...value, loudness: e.target.checked })} />
+      اظبط علو الصوت على معيار المنصات (‎-14 LUFS)
     </label>
   </>
 );

@@ -24,6 +24,7 @@ export type CaptionedProps = {
   media: string; // فيديو أو ملف صوت
   mediaDuration: number; // بالثواني (الاستوديو بيحسبها لوحده)
   mediaVolume: number; // 0..100
+  cleanAudio: string; // نسخة الصوت بعد التنضيف (لو موجودة بتتسمع بدل الصوت الأصلي)
   bgImage: string; // لو الـ media صوت بس
   bgFrom: string;
   bgTo: string;
@@ -219,13 +220,16 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
       {hasVideo ? (
         <OffthreadVideo
           src={assetSrc(p.media)}
-          volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
+          muted={!!p.cleanAudio}
+          volume={p.cleanAudio ? 0 : Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
           style={{ width: "100%", height: "100%", objectFit: p.fit === "contain" ? "contain" : "cover" }}
         />
       ) : (
         p.bgImage && <KenBurnsImage src={p.bgImage} duration={durationInFrames} />
       )}
-      {hasAudio && <Html5Audio src={assetSrc(p.media)} volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100} />}
+      {(hasAudio || (hasVideo && p.cleanAudio)) && (
+        <Html5Audio src={assetSrc(p.cleanAudio || p.media)} volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100} />
+      )}
       {p.music && (
         <Html5Audio src={assetSrc(p.music)} loop volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps)} />
       )}

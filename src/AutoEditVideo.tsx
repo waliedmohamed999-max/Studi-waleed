@@ -13,6 +13,7 @@ export type AutoEditProps = {
   media: string;
   mediaDuration: number; // ثواني
   mediaVolume: number;
+  cleanAudio: string; // نسخة الصوت بعد التنضيف (لو موجودة بتتسمع بدل صوت الفيديو)
   words: Caption[]; // كلام الفيديو الأصلي بتوقيته
   speech: TimeRange[]; // الفترات اللي فيها كلام فعلًا (من مستوى الصوت)
   silenceMs: number;
@@ -73,14 +74,21 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
   const drift = interpolate(frame, [0, Math.max(1, frames)], [0, 0.02]);
   const scale = 1 + (target - 1) * punch + drift;
 
+  // fade سريع (3 فريم ≈ 0.1 ثانية) في أول وآخر كل مقطع، عشان القطع ميعملش "تِك"
+  const base = Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100;
+  const vol = (f: number) => base * Math.max(0, Math.min(1, f / 3, (frames - f) / 3));
+  const trimBefore = Math.round((seg.fromMs / 1000) * fps);
+
   return (
     <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: "50% 40%" }}>
       <OffthreadVideo
         src={assetSrc(p.media)}
-        trimBefore={Math.round((seg.fromMs / 1000) * fps)}
-        volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
+        trimBefore={trimBefore}
+        muted={!!p.cleanAudio}
+        volume={p.cleanAudio ? 0 : vol}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
+      {p.cleanAudio && <Html5Audio src={assetSrc(p.cleanAudio)} trimBefore={trimBefore} volume={vol} />}
     </AbsoluteFill>
   );
 };
