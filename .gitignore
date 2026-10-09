@@ -1,0 +1,11 @@
+# حاجات مش لازم تترفع على Git
+node_modules/
+out/
+# Whisper والموديل (حوالي 1.6 جيجا) بيتنزّلوا تاني بـ: node scripts/whisper.mjs
+whisper/
+# مفاتيح الخدمات الخارجية، أوعى ترفعها
+.env
+# ملفاتك وشغلك (شيل السطور دي لو عايز تحفظهم في Git)
+public/uploads/
+projects/
+brand.json

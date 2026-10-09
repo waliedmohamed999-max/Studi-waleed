@@ -1,0 +1,114 @@
+[
+    {
+        "text":  "أهلاً",
+        "startMs":  130,
+        "endMs":  520,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " بك",
+        "startMs":  520,
+        "endMs":  780,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " في",
+        "startMs":  780,
+        "endMs":  1040,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " استوديو",
+        "startMs":  1040,
+        "endMs":  1960,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " منتاج.",
+        "startMs":  1960,
+        "endMs":  2620,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " اكتب",
+        "startMs":  2620,
+        "endMs":  3380,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " الكلام،",
+        "startMs":  3380,
+        "endMs":  4560,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " واختر",
+        "startMs":  4560,
+        "endMs":  5540,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " الصوت،",
+        "startMs":  5540,
+        "endMs":  6380,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " والكابشن",
+        "startMs":  6380,
+        "endMs":  7880,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " يظهر",
+        "startMs":  7880,
+        "endMs":  8650,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " وحده",
+        "startMs":  8650,
+        "endMs":  9260,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " كلمة",
+        "startMs":  9260,
+        "endMs":  9900,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " بكلمة.",
+        "startMs":  9900,
+        "endMs":  11000,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " جرّبه",
+        "startMs":  11000,
+        "endMs":  11800,
+        "timestampMs":  null,
+        "confidence":  null
+    },
+    {
+        "text":  " الآن!",
+        "startMs":  11800,
+        "endMs":  12620,
+        "timestampMs":  null,
+        "confidence":  null
+    }
+]
