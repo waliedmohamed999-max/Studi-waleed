@@ -5,7 +5,7 @@
       "name": "studio",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "studio"],
-      "port": 3000
+      "port": 4000
     }
   ]
 }
