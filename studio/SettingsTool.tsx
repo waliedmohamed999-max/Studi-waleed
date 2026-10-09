@@ -22,9 +22,26 @@ export const SettingsTool: React.FC = () => {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // لو السيرفر لسه بيقوم (أو بيعيد التشغيل)، بنحاول تاني كل ثانيتين لحد ما يرد
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    send("/api/settings", "GET").then(setState).catch((e) => setError(e.message));
-  }, []);
+    if (state) return;
+    let alive = true;
+    send("/api/settings", "GET")
+      .then((s) => {
+        if (!alive) return;
+        setState(s);
+        setError(null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setError("السيرفر مش بيرد. اتأكد إن الاستوديو شغال (npm run studio)، وبنحاول تاني لوحدنا…");
+        setTimeout(() => alive && setAttempt((a) => a + 1), 2000);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [attempt, state]);
 
   const test = async (id: string) => {
     setTests((t) => ({ ...t, [id]: "busy" }));
