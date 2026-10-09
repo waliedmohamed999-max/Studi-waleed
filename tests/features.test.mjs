@@ -196,3 +196,43 @@ describe("المراجعة قبل التصدير", () => {
     expect(j.result.frames).toEqual([...j.result.frames].sort((a, b) => a - b)); // بالترتيب
   }, 240000);
 });
+
+describe("البودكاست على السيرفر", () => {
+  it("زامن وقطّع، وبعدين الفيديو بيترسم فعلًا (لقطات من الـ renderer الحقيقي)", async () => {
+    const a = clip("zz-test-pod1", 640, 360, [200, 60, 60], 3, true);
+    const b = clip("zz-test-pod2", 640, 360, [60, 60, 200], 3, true);
+    const j = await job("/api/podcast/analyze", { cams: [{ path: a, role: "speaker" }, { path: b, role: "speaker" }], minShotMs: 1000 });
+    expect(j.error ?? "").toBe("");
+    expect(j.status).toBe("done");
+    expect(Math.abs(j.result.offsets[1])).toBeLessThanOrEqual(30); // نفس الصوت = متزامنين
+    expect(j.result.shots.length).toBeGreaterThan(0);
+
+    const props = {
+      cams: [
+        { id: "a", src: a, label: "أحمد", role: "speaker", mic: "", focusX: 50, focusY: 40 },
+        { id: "b", src: b, label: "سارة", role: "speaker", mic: "", focusX: 50, focusY: 40 },
+      ],
+      offsets: j.result.offsets,
+      range: j.result.range,
+      mediaDuration: 3,
+      shots: [
+        { fromMs: j.result.range.fromMs, toMs: 1500, cam: 0, cams: [0], kind: "speaker" },
+        { fromMs: 1500, toMs: j.result.range.toMs, cam: 1, cams: [0, 1], kind: "split" },
+      ],
+      audioFrom: "0", audioFile: "", audioOffset: 0, cleanAudio: "", audioVolume: 100,
+      words: [{ text: " أهلا", startMs: 200, endMs: 700, timestampMs: null, confidence: null }],
+      captions: "on", captionStyle: "bold", position: "bottom", captionSize: 100, font: "cairo", textColor: "#ffffff", highlight: "#facc15",
+      format: "reel", grade: "warm", nameTags: "on", punchIn: "on", hookTitle: "تجربة", showHook: "on", music: "", musicVolume: 8,
+      highlights: [], clip: null, analysis: null, minShotSec: 1, splitOnBoth: "on",
+    };
+    const r = await job("/api/ai/review", { videoId: "Podcast", props });
+    expect(r.error ?? "").toBe("");
+    expect(r.status).toBe("done");
+    expect(r.result.frames.length).toBe(6);
+  }, 240000);
+
+  it("كاميرا واحدة مرفوضة", async () => {
+    const { status } = await api("/api/podcast/analyze", { method: "POST", body: { cams: [{ path: "uploads/zz-test-pod1.mp4" }] } });
+    expect(status).toBe(400);
+  });
+});

@@ -2996,3 +2996,61 @@ button.chip {
   background: rgba(251, 191, 36, 0.16);
   color: var(--warn);
 }
+
+/* ===== البودكاست ===== */
+.podcast {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pod-cam {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--cam-color);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.pod-cam-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pod-cam-head input {
+  flex: 1;
+  min-width: 0;
+}
+.pod-cam-head select {
+  width: auto;
+}
+.pod-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cam-color);
+  flex: 0 0 auto;
+}
+.pod-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pod-shots {
+  margin: 0;
+  padding-inline-start: 22px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: var(--fs-s);
+}
+.pod-shots li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pod-shots small {
+  color: var(--faint);
+  margin-inline-start: auto;
+}

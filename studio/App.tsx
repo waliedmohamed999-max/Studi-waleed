@@ -58,6 +58,8 @@ import {
   IconFiles,
 } from "./icons";
 import { SettingsTool } from "./SettingsTool";
+import { PodcastPanel, camColors, camName } from "./PodcastPanel";
+import { podcastShots, podcastWindow, type PodcastProps, type PodcastShot } from "../src/PodcastVideo";
 import { PlanTool } from "./PlanTool";
 import { LibraryTool } from "./LibraryTool";
 import { ReviewCard } from "./ReviewCard";
@@ -74,7 +76,7 @@ const saveText: Record<SaveState, string> = { idle: "", dirty: "فيه تعدي�
 
 // خانات "المحتوى" (إيه اللي في الفيديو) بتروح للوحة الأدوات، وخانات "الشكل" (إزاي يبان) بتروح للخصائص
 // (الصور زي اللوجو والخلفية بتعتبر "شكل"، والصور اللي جوه المشاهد موجودة في محرر المشاهد نفسه)
-const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "captions", "slides", "text", "lines", "media"]);
+const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "podcast", "captions", "slides", "text", "lines", "media"]);
 
 type Tool = "content" | "ai" | "sound" | "library" | "plan" | "project" | "brand" | "batch" | "export" | "publish" | "settings" | "inspect";
 const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[] = [
@@ -176,7 +178,7 @@ export const App: React.FC = () => {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [selectedSeg, setSelectedSeg] = useState<number | null>(null); // المقطع المختار في المونتاج الأوتوماتيك
   // أوامر الكيبورد بتقرا آخر نسخة من الدوال دي (بتتحدث كل render تحت)
-  const actions = useRef({ split: () => {}, remove: () => {} });
+  const actions = useRef({ split: () => {}, remove: () => {}, camera: (_i: number) => {} });
   const setScenes = (next: Scene[]) => scenesField && updateProps({ [scenesField.key]: next });
 
   // ===== المشغل =====
@@ -298,7 +300,7 @@ export const App: React.FC = () => {
       else if (e.code === "Delete" || e.code === "Backspace") {
         e.preventDefault();
         actions.current.remove();
-      }
+      } else if (/^Digit[1-6]$/.test(e.code) && !mod) actions.current.camera(Number(e.code.slice(5)) - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -368,6 +370,39 @@ export const App: React.FC = () => {
           label: s.voiceLine,
           color: "#10b981",
         })),
+        onBlockClick: (_id, start) => seek(start),
+      });
+    }
+  } else if (video.id === "Podcast") {
+    // اللقطات: كل كاميرا بلون، واللقطة المختارة تقدر تغير كاميرتها
+    const pp = playerProps as unknown as PodcastProps;
+    const win = podcastWindow(pp);
+    tracks.push({
+      id: "v1",
+      label: "الكاميرات",
+      icon: <IconClapper size={14} />,
+      kind: "video",
+      blocks: podcastShots(pp).map((s, i) => ({
+        id: `p${i}`,
+        start: Math.round(((s.fromMs - win.fromMs) / 1000) * fps),
+        frames: Math.max(1, Math.round(((s.toMs - s.fromMs) / 1000) * fps)),
+        label: s.kind === "split" ? `${camName(pp.cams[s.cams[0]], s.cams[0])} + ${camName(pp.cams[s.cams[1]], s.cams[1])}` : camName(pp.cams[s.cam], s.cam),
+        color: camColors[s.cam % camColors.length],
+        selected: selectedSeg === i,
+      })),
+      onBlockClick: (id, start) => {
+        setSelectedSeg(Number(id.slice(1)));
+        seek(start);
+      },
+    });
+    if (pp.captions === "on" && (pp.words ?? []).length) {
+      const ws = pp.words.filter((w) => w.endMs > win.fromMs && w.startMs < win.toMs);
+      tracks.push({
+        id: "cap",
+        label: "الكابشن",
+        icon: <IconType size={14} />,
+        kind: "text",
+        blocks: ws.map((w, i) => ({ id: `w${i}`, start: Math.round(((w.startMs - win.fromMs) / 1000) * fps), frames: Math.max(1, Math.round(((w.endMs - w.startMs) / 1000) * fps)), label: w.text.trim(), color: "#f59e0b" })),
         onBlockClick: (_id, start) => seek(start),
       });
     }
@@ -484,8 +519,57 @@ export const App: React.FC = () => {
       setSelectedSceneId(next[Math.min(i, next.length - 1)]?.id ?? null);
     }
   };
-  actions.current = { split: splitAtPlayhead, remove: deleteSelected };
-  const timelineTools = isAutoEdit ? (
+  // ===== البودكاست: قطع لقطة، دمج، وتغيير الكاميرا =====
+  const isPodcast = video.id === "Podcast";
+  // كل اللقطات بالفيديو كله (مش بس المقطع اللي بتعاينه)، بنفس ترتيب اللي ظاهر
+  const podShots = () => {
+    const pp = props as unknown as PodcastProps;
+    return { pp, all: podcastShots({ ...pp, clip: null }), shown: podcastShots(pp), win: podcastWindow(pp) };
+  };
+  const setPodShots = (shots: PodcastShot[]) => updateProps({ shots });
+  const podSplit = () => {
+    const { all, win } = podShots();
+    const at = win.fromMs + (frame / fps) * 1000;
+    const i = all.findIndex((s) => at > s.fromMs + 200 && at < s.toMs - 200);
+    if (i < 0) return;
+    setPodShots([...all.slice(0, i), { ...all[i], toMs: at }, { ...all[i], fromMs: at }, ...all.slice(i + 1)]);
+  };
+  const selectedPodShot = () => {
+    const { all, shown } = podShots();
+    const s = selectedSeg !== null ? shown[selectedSeg] : null;
+    return s ? all.findIndex((x) => x.toMs > s.fromMs && x.fromMs < s.toMs) : -1;
+  };
+  const podMerge = () => {
+    const { all } = podShots();
+    const i = selectedPodShot();
+    if (i <= 0) return;
+    setPodShots([...all.slice(0, i - 1), { ...all[i - 1], toMs: all[i].toMs }, ...all.slice(i + 1)]);
+    setSelectedSeg(null);
+  };
+  const podCamera = (cam: number) => {
+    const { pp, all } = podShots();
+    const i = selectedPodShot();
+    if (i < 0 || !pp.cams[cam]) return;
+    setPodShots(all.map((s, j) => (j === i ? { ...s, cam, cams: [cam], kind: pp.cams[cam].role === "wide" ? "wide" : "speaker" } : s)));
+  };
+
+  actions.current = isPodcast ? { split: podSplit, remove: podMerge, camera: podCamera } : { split: splitAtPlayhead, remove: deleteSelected, camera: () => {} };
+  const podCams = isPodcast ? (props as unknown as PodcastProps).cams : [];
+  const timelineTools = isPodcast ? (
+    <>
+      <button type="button" className="tl-btn" onClick={podSplit} title="اقطع اللقطة عند المؤشر (S)">
+        ✂️ اقطع
+      </button>
+      {podCams.map((c, i) => (
+        <button key={c.id} type="button" className="tl-btn" onClick={() => podCamera(i)} disabled={selectedSeg === null} title={`خلي اللقطة المختارة على ${camName(c, i)} (${i + 1})`}>
+          <span className="pod-dot" style={{ "--cam-color": camColors[i % camColors.length] } as React.CSSProperties} aria-hidden="true" /> {i + 1}
+        </button>
+      ))}
+      <button type="button" className="tl-btn" onClick={podMerge} disabled={selectedSeg === null} title="ادمج اللقطة المختارة مع اللي قبلها (Delete)">
+        ⇤ ادمج
+      </button>
+    </>
+  ) : isAutoEdit ? (
     <>
       <button type="button" className="tl-btn" onClick={splitAtPlayhead} title="اقطع عند المؤشر (S)">
         ✂️ اقطع
@@ -515,6 +599,7 @@ export const App: React.FC = () => {
         />
       );
     if (f.type === "film") return <FilmPanel projectId={project.id} props={props} updateProps={updateProps} fps={fps} seek={seek} exportSettings={exportSettings} />;
+    if (f.type === "podcast") return <PodcastPanel props={props} updateProps={updateProps} projectName={project.name} fps={fps} seek={seek} exportSettings={exportSettings} />;
     if (f.type === "autoedit") return <AutoEditPanel props={props} updateProps={updateProps} projectName={project.name} fps={fps} frame={frame} seek={seek} exportSettings={exportSettings} />;
     if (f.type === "captions") return <CaptionsPanel props={props} updateProps={updateProps} frame={frame} fps={fps} seek={seek} />;
     return <FieldInput field={f} value={props[f.key] ?? video.defaultProps[f.key]} onChange={(v) => updateProp(f.key, v)} />;

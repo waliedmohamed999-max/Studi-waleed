@@ -10,6 +10,7 @@ import { createQueue, formats } from "./scripts/render-queue.mjs";
 import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath } from "./scripts/whisper.mjs";
 import { AiError, aiStatus, analyzeTalk, contentPlan, generateVideo, improveScene, pickEmojis, planFilm, reviewVideo, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
 import { dubLanguages, dubMedia, joinClips, MediaError } from "./scripts/media.mjs";
+import { analyzePodcast, PodcastError } from "./scripts/podcast.mjs";
 import { bundle } from "@remotion/bundler";
 import { renderStill, selectComposition } from "@remotion/renderer";
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
@@ -670,6 +671,29 @@ app.post("/api/media/join", (req, res) => {
   });
 });
 
+// ===== البودكاست: مزامنة الكاميرات ومين بيتكلم والقطع =====
+app.post("/api/podcast/analyze", (req, res) => {
+  const b = req.body ?? {};
+  const cams = (Array.isArray(b.cams) ? b.cams : []).slice(0, 6).map((c) => ({ file: publicPath(c?.path), mic: c?.mic ? publicPath(c.mic) : null, role: c?.role === "wide" ? "wide" : "speaker" }));
+  if (cams.length < 2 || cams.some((c) => !c.file)) return res.status(400).json({ error: "ضيف فيديو لكل كاميرا الأول (كاميرتين على الأقل)" });
+  if (cams.some((c, i) => b.cams[i]?.mic && !c.mic)) return res.status(400).json({ error: "ملف مايك من الملفات مش موجود" });
+  const audioFile = b.audioFile ? publicPath(b.audioFile) : null;
+  if (b.audioFile && !audioFile) return res.status(400).json({ error: "ملف الصوت المنفصل مش موجود" });
+  startFilmJob(res, async (step) => {
+    try {
+      return await analyzePodcast({
+        cams: cams.map((c) => ({ ...c, mic: c.mic ?? undefined })),
+        audioFile: audioFile ?? undefined,
+        minShotMs: Math.min(8000, Math.max(800, Number(b.minShotMs) || 2000)),
+        split: !!b.split,
+        onProgress: step,
+      });
+    } catch (e) {
+      throw e instanceof PodcastError ? new FilmError(e.message) : e;
+    }
+  });
+});
+
 // ===== شيل الخلفية =====
 app.post("/api/autoedit/cutout", (req, res) => {
   if (needFal(res)) return;
@@ -702,15 +726,37 @@ app.post("/api/autoedit/dub-lips", (req, res) => {
 });
 
 // ===== مراجعة قبل التصدير: لقطات من الفيديو ← Claude =====
-// الـ bundle بيتعمل مرة واحدة بس (أول مراجعة بتاخد وقت أطول شوية)
+// الـ bundle بيتعمل مرة ويتعاد بس لو ملفاتك اتغيرت
+// (على الويندوز Remotion بينسخ فولدر public جوه الـ bundle، فالملف اللي اترفع بعده مش بيبان غير في bundle جديد)
 let reviewBundle = null;
+let reviewBundleSig = "";
+const publicSignature = () => {
+  let n = 0;
+  let newest = 0;
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f);
+      else {
+        n++;
+        newest = Math.max(newest, fs.statSync(f).mtimeMs);
+      }
+    }
+  };
+  walk(publicDir);
+  return `${n}:${newest}`;
+};
 app.post("/api/ai/review", (req, res) => {
   if (!aiStatus().available) return res.status(400).json({ error: "حط مفتاح Claude من ⚙️ الإعدادات" });
   const { videoId, props, info } = req.body ?? {};
   if (!videoIdOk(videoId) || !props || typeof props !== "object") return res.status(400).json({ error: "بيانات الفيديو مش صحيحة" });
   startFilmJob(res, async (step) => {
     step("بيجهز الفيديو");
-    reviewBundle ??= bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
+    const sig = publicSignature();
+    if (!reviewBundle || sig !== reviewBundleSig) {
+      reviewBundleSig = sig;
+      reviewBundle = bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
+    }
     const serveUrl = await reviewBundle.catch((e) => {
       reviewBundle = null;
       throw e;

@@ -16,6 +16,7 @@ import { newScene } from "./scenes/defs";
 import { CaptionedVideo, calculateCaptioned, type CaptionedProps } from "./CaptionedVideo";
 import { FilmVideo, calculateFilm } from "./FilmVideo";
 import { AutoEditVideo, calculateAutoEdit, type AutoEditProps } from "./AutoEditVideo";
+import { PodcastVideo, calculatePodcast, type PodcastProps } from "./PodcastVideo";
 import type { FilmProps } from "./film/types";
 // كابشن التجربة: اتعمل بـ Whisper من public/demo/voice-demo.wav واتصلح فيه الإملا
 import demoCaptions from "./demo/voice-demo-captions.json";
@@ -252,6 +253,43 @@ const autoEditDefaults: AutoEditProps = {
   useDub: "off",
 };
 
+const podcastDefaults: PodcastProps = {
+  cams: [
+    { id: "c1", src: "", label: "", role: "speaker", mic: "", focusX: 50, focusY: 40 },
+    { id: "c2", src: "", label: "", role: "speaker", mic: "", focusX: 50, focusY: 40 },
+  ],
+  offsets: [],
+  range: null,
+  mediaDuration: 0,
+  shots: [],
+  audioFrom: "0",
+  audioFile: "",
+  audioOffset: 0,
+  cleanAudio: "",
+  audioVolume: 100,
+  words: [],
+  captions: "on",
+  captionStyle: "bold",
+  position: "bottom",
+  captionSize: 100,
+  font: "cairo",
+  textColor: "#ffffff",
+  highlight: "#facc15",
+  format: "youtube",
+  grade: "none",
+  nameTags: "on",
+  punchIn: "on",
+  hookTitle: "",
+  showHook: "on",
+  music: "",
+  musicVolume: 8,
+  highlights: [],
+  clip: null,
+  analysis: null,
+  minShotSec: 2,
+  splitOnBoth: "off",
+};
+
 export const videos: VideoDef[] = [
   {
     id: "AutoEdit",
@@ -302,6 +340,44 @@ export const videos: VideoDef[] = [
       { key: "format", label: "المقاس", type: "select", options: formatOptions, group: "الشكل" },
       { key: "grade", label: "فلتر الألوان", type: "select", options: gradeOptions, group: "الشكل" },
       { key: "mediaVolume", label: "صوت الفيديو", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
+      { key: "music", label: "مزيكا خلفية", type: "audio", group: "الصوت" },
+      { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
+    ],
+  },
+  {
+    id: "Podcast",
+    name: "🎙️ بودكاست بكذا كاميرا (قطع أوتوماتيك على اللي بيتكلم)",
+    component: PodcastVideo,
+    ...calculatePodcast(podcastDefaults),
+    calculate: calculatePodcast,
+    defaultProps: podcastDefaults,
+    brand: { font: "font", text: "textColor", accent: "highlight" },
+    fields: [
+      { key: "podcast", label: "البودكاست", type: "podcast", group: "البودكاست" },
+      { key: "hookTitle", label: "العنوان الشادد (أول 3 ثواني)", type: "text", group: "البودكاست" },
+      { key: "format", label: "المقاس", type: "select", options: formatOptions, group: "الشكل" },
+      { key: "grade", label: "فلتر الألوان", type: "select", options: gradeOptions, group: "الشكل" },
+      { key: "nameTags", label: "اسم المتكلم تحت", type: "select", options: onOff, group: "الشكل" },
+      { key: "punchIn", label: "زووم خفيف بين اللقطات", type: "select", options: onOff, group: "الشكل" },
+      { key: "showHook", label: "العنوان الشادد", type: "select", options: onOff, group: "الشكل" },
+      { key: "captions", label: "الكابشن", type: "select", options: onOff, group: "الكابشن" },
+      { key: "captionStyle", label: "شكل الكابشن", type: "select", options: captionStyles, group: "الكابشن" },
+      {
+        key: "position",
+        label: "مكان الكابشن",
+        type: "select",
+        options: [
+          { value: "bottom", label: "تحت" },
+          { value: "center", label: "في النص" },
+          { value: "top", label: "فوق" },
+        ],
+        group: "الكابشن",
+      },
+      { key: "captionSize", label: "حجم الكابشن", type: "number", min: 50, max: 200, step: 10, suffix: "٪", group: "الكابشن" },
+      { key: "font", label: "الخط", type: "select", options: fontOptions, group: "الكابشن" },
+      { key: "textColor", label: "لون الكلام", type: "color", group: "الكابشن" },
+      { key: "highlight", label: "اللون المميز", type: "color", group: "الكابشن" },
+      { key: "audioVolume", label: "صوت الكلام", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
       { key: "music", label: "مزيكا خلفية", type: "audio", group: "الصوت" },
       { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
     ],
