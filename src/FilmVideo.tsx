@@ -22,6 +22,7 @@ import { assetSrc, fadeEnvelope, KenBurnsImage } from "./lib/media";
 import { AnimatedText } from "./lib/AnimatedText";
 import { CaptionsLayer } from "./CaptionedVideo";
 import { shotVideo, type FilmProps, type FilmShot } from "./film/types";
+import { gradeFilter } from "./lib/grades";
 
 const FPS = 30;
 const FADE = 10; // طول الانتقال الناعم بالفريمات
@@ -70,15 +71,6 @@ export const filmCaptions = (p: FilmProps): Caption[] => {
   });
 };
 
-// ===== التلوين السينمائي =====
-const gradeFilter: Record<string, string> = {
-  none: "none",
-  warm: "sepia(0.18) saturate(1.12) contrast(1.05)",
-  cool: "saturate(0.95) hue-rotate(-6deg) contrast(1.06) brightness(0.98)",
-  "teal-orange": "contrast(1.1) saturate(1.2) sepia(0.08) hue-rotate(-4deg)",
-  mono: "grayscale(1) contrast(1.15)",
-};
-
 // حبيبات الفيلم: نويز بيتغير كل فريم
 const Grain: React.FC = () => {
   const frame = useCurrentFrame();
@@ -105,7 +97,7 @@ const ShotView: React.FC<{ shot: FilmShot; index: number; p: FilmProps; fontFami
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      <AbsoluteFill style={{ filter: gradeFilter[p.grade] ?? "none" }}>
+      <AbsoluteFill style={{ filter: gradeFilter(p.grade) }}>
         {shot.clip ? (
           <OffthreadVideo src={assetSrc(shotVideo(shot))} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : shot.keyframe ? (

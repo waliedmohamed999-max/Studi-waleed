@@ -3,6 +3,7 @@
 import type { Field } from "../lib/fieldTypes";
 import { animationOptions } from "../lib/AnimatedText";
 import type { Layer } from "./layers";
+import { gradeOptions } from "../lib/grades";
 
 export type SceneType = "title" | "text" | "imageText" | "video" | "bullets" | "stat" | "quote" | "cta";
 
@@ -62,12 +63,13 @@ export const sceneDefs: Record<SceneType, SceneDef> = {
     label: "فيديو + كلام",
     icon: "🎬",
     color: "#8b5cf6",
-    defaults: { video: "", text: "", videoVolume: 0, trimStart: 0 },
+    defaults: { video: "", text: "", videoVolume: 0, trimStart: 0, grade: "none" },
     fields: [
       { key: "video", label: "الفيديو", type: "video" },
       { key: "text", label: "الكلام (اختياري)", type: "text" },
       { key: "trimStart", label: "ابدأ الفيديو من", type: "number", min: 0, max: 600, step: 0.5, suffix: "ثانية" },
       { key: "videoVolume", label: "صوت الفيديو", type: "number", min: 0, max: 100, step: 5, suffix: "٪" },
+      { key: "grade", label: "فلتر الألوان", type: "select", options: gradeOptions },
     ],
     summary: (s) => str(s.text) || "فيديو",
   },

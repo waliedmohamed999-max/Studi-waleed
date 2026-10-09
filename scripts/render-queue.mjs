@@ -122,6 +122,8 @@ export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(out
               console.error("loudness:", e.message); // الفيديو نفسه سليم حتى لو الضبط فشل
             }
           }
+          // كابشن النشر (لو موجود) في ملف نصي جنب الفيديو، عشان تنسخه وانت بترفع
+          if (item.caption) fs.writeFileSync(path.join(dir, `${base}.txt`), item.caption, "utf8");
           const rel = path.relative(outDir, file).split(path.sep).map(encodeURIComponent).join("/");
           item.file = `/out/${rel}`;
 

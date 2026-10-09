@@ -321,7 +321,91 @@ The caption opens with a hook line, adds one or two lines of value, and ends wit
     schema: obj({ title: str, caption: str, hashtags: { type: "array", items: str } }),
   });
 };
+// ===== 8) إيموجي على الكلمات المهمة =====
+export const pickEmojis = async ({ words, max }) => {
+  if (isMock()) return { picks: words.length > 4 ? [{ word: 1, emoji: "🔥" }, { word: Math.min(words.length - 1, 4), emoji: "💡" }] : [] };
+  const transcript = words.map((w, i) => `${i}:${w}`).join(" ");
+  return askJson({
+    effort: "low",
+    system: `You add emojis to Arabic short-form videos the way top creators do: an emoji pops on screen at the exact word it illustrates.
+Pick up to ${max} words that are concrete, emotional or important (money, food, success, warnings, questions, places, products, feelings). Spread them out: at least 8 words apart. Never pick filler words. Use one fitting emoji per pick, varied, no flags unless a country is named.
+Refer to words by their numbers.`,
+    user: `Transcript (number:word):\n${transcript}`,
+    schema: obj({ picks: { type: "array", items: obj({ word: { type: "integer" }, emoji: str }) } }),
+  });
+};
+
+// ===== 9) خطة محتوى (شهر كامل مثلًا) =====
+export const contentPlan = async ({ business, audience, dialect, platform, count, goal }) => {
+  if (isMock()) return mockPlan(count);
+  return askJson({
+    effort: "medium",
+    maxTokens: 32000,
+    system: `You are the head of content for a social media agency serving Arabic-speaking brands, especially in Saudi Arabia and Egypt. You plan short-form video calendars that grow followers and sales.
+Write all Arabic text in ${dialectFilm(dialect)}.
+Mix formats so the calendar stays fresh:
+- "quick": an animated text video made from scenes (tips, lists, offers, stats). Cheap and fast.
+- "talk": the owner or presenter talks to camera; give a ready-to-read script of 60-120 words with a strong first line.
+- "film": a short cinematic AI-generated ad or story; give a rich brief describing scenes, mood and message.
+Balance the content pillars: education/value, behind the scenes, social proof, offers/sales (max 1 in 4), trends/entertainment, and community questions.
+Each item: day (1-based), pillar (short Arabic), format, title (short Arabic), hook (the first sentence or on-screen line, max 10 words, curiosity-driven), idea (2-3 Arabic sentences describing the video), script (for talk: the full script; for quick and film: a detailed brief the generator can use), cta (short Arabic call to action), hashtags (3-5 without #).`,
+    user: `Business: ${business}
+Audience: ${audience || "(not specified)"}
+Main platform: ${platform}
+Goal: ${goal || "grow followers and sales"}
+Number of videos: ${count}`,
+    schema: obj({
+      items: {
+        type: "array",
+        items: obj({ day: { type: "integer" }, pillar: str, format: enumOf(["quick", "talk", "film"]), title: str, hook: str, idea: str, script: str, cta: str, hashtags: { type: "array", items: str } }),
+      },
+    }),
+  });
+};
+
+// ===== 10) مراجعة الفيديو قبل التصدير (Claude بيشوف لقطات منه) =====
+export const reviewVideo = async ({ images, info }) => {
+  if (isMock()) return mockReview;
+  return askJson({
+    effort: "medium",
+    system: `You are a strict senior editor reviewing a short-form video before it is published on social media (Arabic audience). You get several frames sampled across the video (first frame = the opening) and technical info.
+Check: the hook in the first seconds, text readability (size, contrast, length, Arabic text direction and broken letters), captions or text hidden under platform UI (top ~10%, bottom ~22%, right edge ~14% on vertical videos), framing and faces cut off, empty or ugly frames, consistency of style, and the end (clear call to action).
+Return a short overall verdict in Egyptian Arabic, a score from 1 to 10, and a list of concrete issues. Each issue: severity (high, medium, low), at (the frame number or "عام"), problem and fix, both in short Egyptian Arabic. Mention only real problems you can see; if it's good, say so and keep the list short.`,
+    user: [
+      ...images.map((img) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } })),
+      { type: "text", text: `Frames above are in order (${images.length} frames).\nInfo: ${JSON.stringify(info)}` },
+    ],
+    schema: obj({
+      verdict: str,
+      score: { type: "integer" },
+      issues: { type: "array", items: obj({ severity: enumOf(["high", "medium", "low"]), at: str, problem: str, fix: str }) },
+    }),
+  });
+};
+
 // ===== ردود ثابتة للتجربة من غير مفتاح (AI_MOCK=1) =====
+const mockReview = {
+  verdict: "الفيديو كويس، بس البداية محتاجة تبقى أقوى (تجربة)",
+  score: 7,
+  issues: [
+    { severity: "medium", at: "1", problem: "أول جملة مش شادة كفاية", fix: "ابدأ بسؤال أو رقم مفاجئ" },
+    { severity: "low", at: "عام", problem: "الكابشن صغير شوية على الموبايل", fix: "كبّر حجم الكابشن لـ 120٪" },
+  ],
+};
+const mockPlan = (count) => ({
+  items: Array.from({ length: Math.min(count, 30) }, (_, i) => ({
+    day: i + 1,
+    pillar: ["نصايح", "ورا الكواليس", "آراء العملاء", "عروض"][i % 4],
+    format: ["quick", "talk", "film"][i % 3],
+    title: `فكرة رقم ${i + 1} (تجربة)`,
+    hook: "عارف إيه اللي محدش قالك عليه؟",
+    idea: "فيديو قصير بيشرح نقطة واحدة مهمة للعميل.",
+    script: "أهلاً بيكم! النهارده هقولكم على سر بسيط هيفرق معاكم جدًا. جربوه وقولولي رأيكم في التعليقات.",
+    cta: "تابعنا للمزيد",
+    hashtags: ["نصايح", "تجربة", "السعودية"],
+  })),
+});
+
 const mockPost = {
   title: "سر القهوة اللي محدش قالك عليه ☕ (تجربة)",
   caption: "صباحك ما يكمل إلا بفنجال صح ☕\nجربنا القهوة المختصة وهذا رأينا بصراحة.\nقولنا في التعليقات: وش قهوتك المفضلة؟",

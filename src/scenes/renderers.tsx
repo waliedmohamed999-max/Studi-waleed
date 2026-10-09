@@ -2,6 +2,7 @@
 import { AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { AnimatedText } from "../lib/AnimatedText";
 import { assetSrc, KenBurnsImage } from "../lib/media";
+import { gradeFilter } from "../lib/grades";
 import type { Scene, SceneType } from "./defs";
 
 // إعدادات المشروع اللي كل المشاهد محتاجاها
@@ -63,7 +64,7 @@ const SceneFrame: React.FC<SceneProps & { children: React.ReactNode; align?: "ce
             trimBefore={Math.round(Math.max(0, Number(scene.trimStart) || 0) * fps)}
             muted={!Number(scene.videoVolume)}
             volume={Math.max(0, Math.min(100, Number(scene.videoVolume) || 0)) / 100}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", filter: gradeFilter(str(scene.grade)) }}
           />
           {str(scene.text) && <AbsoluteFill style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.25) 35%, transparent 60%)" }} />}
         </>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 export type ExportSettings = { format: "mp4" | "webm" | "gif"; quality: "high" | "draft"; thumbnail: boolean; loudness: boolean };
-export type QueueItem = { videoId: string; name: string; props: Record<string, unknown> };
+export type QueueItem = { videoId: string; name: string; props: Record<string, unknown>; caption?: string };
 
 type BatchItem = { name: string; status: "pending" | "rendering" | "done" | "error" | "canceled"; progress: number; file: string | null; thumb: string | null; error: string | null };
 type Batch = { id: string; name: string; createdAt: number; settings: ExportSettings; folder: string; status: string; done: number; total: number; items: BatchItem[] };

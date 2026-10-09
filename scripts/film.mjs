@@ -424,6 +424,48 @@ export const createFilm = ({ publicDir }) => {
     return { lipsync: rel(dest), lipsyncOf: of };
   };
 
+  // ===== حركة الشفايف لفيديو كامل (الدبلجة في المونتاج الأوتوماتيك) =====
+  // الصوت المدبلج بنفس طول الفيديو، فمش محتاج يتمد
+  const lipsyncFile = async ({ video, audio, onProgress }) => {
+    const videoFile = abs(video);
+    const audioFile = abs(audio);
+    if (!videoFile || !audioFile) throw new FilmError("الفيديو أو الصوت مش موجود");
+    const dir = path.join(publicDir, "uploads");
+    const dest = path.join(dir, `lips-${stamp()}.mp4`);
+    if (isMock()) {
+      onProgress?.("بيحرّك الشفايف (تجربة)");
+      fs.copyFileSync(videoFile, dest);
+      return { path: rel(dest) };
+    }
+    onProgress?.("بيرفع الفيديو والصوت");
+    const [videoUrl, audioUrl] = await Promise.all([toFalUrl(videoFile), toFalUrl(audioFile)]);
+    const data = await callFal(MODELS.lipsync.endpoint, { model: MODELS.lipsync.model, video_url: videoUrl, audio_url: audioUrl, sync_mode: "cut_off" }, onProgress);
+    await download(data.video.url, dest);
+    return { path: rel(dest) };
+  };
+
+  // ===== شيل الخلفية من فيديو (الشخص بيفضل، والخلفية بتبقى شفافة) =====
+  const cutout = async ({ video, onProgress }) => {
+    const file = abs(video);
+    if (!file) throw new FilmError("الفيديو مش موجود");
+    const dir = path.join(publicDir, "uploads");
+    if (isMock()) {
+      // وضع التجربة: نسخة من الفيديو زي ما هو (من غير شفافية)
+      onProgress?.("بيشيل الخلفية (تجربة)");
+      const dest = path.join(dir, `cutout-${stamp()}.mp4`);
+      fs.copyFileSync(file, dest);
+      return { path: rel(dest) };
+    }
+    onProgress?.("بيرفع الفيديو");
+    const url = await toFalUrl(file);
+    const data = await callFal(MODELS.cutout.endpoint, { video_url: url, output_codec: "vp9", refine_foreground_edges: true, subject_is_person: true }, onProgress);
+    const out = Array.isArray(data.video) ? data.video[0] : data.video;
+    if (!out?.url) throw new FilmError("fal.ai مرجعش فيديو");
+    const dest = path.join(dir, `cutout-${stamp()}.webm`);
+    await download(out.url, dest);
+    return { path: rel(dest) };
+  };
+
   // ===== الأصوات المتاحة =====
   const voices = async () => {
     const key = process.env.ELEVENLABS_API_KEY;
@@ -455,7 +497,7 @@ export const createFilm = ({ publicDir }) => {
     }
   };
 
-  return { character, keyframe, voice, clip, lipsync, still, voices, imageForClaude };
+  return { character, keyframe, voice, clip, lipsync, lipsyncFile, cutout, still, voices, imageForClaude };
 };
 
 // HSL ← RGB (لصور وضع التجربة)

@@ -4,7 +4,7 @@ import { AbsoluteFill, Html5Audio, Sequence, useVideoConfig } from "remotion";
 import { TransitionSeries } from "@remotion/transitions";
 import { getFont } from "./lib/fonts";
 import { getFormat } from "./lib/formats";
-import { getTransition, transitionTiming, TRANSITION_FRAMES } from "./lib/transitions";
+import { getTransition, transitionSound, transitionTiming, TRANSITION_FRAMES } from "./lib/transitions";
 import { assetSrc, musicVolume } from "./lib/media";
 import type { Scene } from "./scenes/defs";
 import { sceneRenderers, type Theme } from "./scenes/renderers";
@@ -113,7 +113,7 @@ export const ProjectVideo: React.FC<ProjectProps> = (p) => {
           </Sequence>
           {starts.slice(1).map((start, i) => (
             <Sequence key={`w${i}`} from={Math.max(0, start - (overlap ? 0 : 2))} durationInFrames={20}>
-              <Html5Audio src={assetSrc("demo/whoosh.wav")} volume={0.5} />
+              <Html5Audio src={assetSrc(transitionSound(p.transition))} volume={0.5} />
             </Sequence>
           ))}
           {p.scenes.map((s, i) =>

@@ -54,8 +54,13 @@ import {
   IconUndo,
   IconSend,
   IconSettings,
+  IconCalendar,
+  IconFiles,
 } from "./icons";
 import { SettingsTool } from "./SettingsTool";
+import { PlanTool } from "./PlanTool";
+import { LibraryTool } from "./LibraryTool";
+import { ReviewCard } from "./ReviewCard";
 import { useOnOpenSettings } from "./settings";
 import { LayerHandles } from "./LayersEditor";
 import type { Layer } from "../src/scenes/layers";
@@ -71,11 +76,13 @@ const saveText: Record<SaveState, string> = { idle: "", dirty: "فيه تعدي�
 // (الصور زي اللوجو والخلفية بتعتبر "شكل"، والصور اللي جوه المشاهد موجودة في محرر المشاهد نفسه)
 const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "captions", "slides", "text", "lines", "media"]);
 
-type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "publish" | "settings" | "inspect";
+type Tool = "content" | "ai" | "sound" | "library" | "plan" | "project" | "brand" | "batch" | "export" | "publish" | "settings" | "inspect";
 const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[] = [
   { id: "content", label: "المحتوى", icon: <IconLayers size={20} /> },
   { id: "ai", label: "ذكاء", icon: <IconSparkles size={20} /> },
   { id: "sound", label: "الصوتيات", icon: <IconMusic size={20} /> },
+  { id: "library", label: "الملفات", icon: <IconFiles size={20} /> },
+  { id: "plan", label: "الخطة", icon: <IconCalendar size={20} /> },
   { id: "project", label: "المشاريع", icon: <IconFolder size={20} /> },
   { id: "brand", label: "البراند", icon: <IconPalette size={20} /> },
   { id: "batch", label: "الشيت", icon: <IconTable size={20} /> },
@@ -88,6 +95,8 @@ const toolTitle: Record<Tool, string> = {
   content: "المحتوى",
   ai: "الذكاء الاصطناعي",
   sound: "مزيكا ومؤثرات بالذكاء الاصطناعي",
+  library: "مكتبة الملفات",
+  plan: "خطة المحتوى",
   project: "المشاريع",
   brand: "هوية البراند",
   batch: "فيديوهات كتير من شيت",
@@ -559,7 +568,14 @@ export const App: React.FC = () => {
         onPreview={(row, rowProps) => setPreview(row === null || !rowProps ? null : { row, props: rowProps })}
       />
     ),
-    export: <ExportCard settings={exportSettings} onSettings={setExportSettings} current={{ videoId: project.videoId, name: project.name, props }} />,
+    export: (
+      <>
+        <ReviewCard videoId={project.videoId} props={props} meta={meta} settings={exportSettings} seek={seek} />
+        <ExportCard settings={exportSettings} onSettings={setExportSettings} current={{ videoId: project.videoId, name: project.name, props }} />
+      </>
+    ),
+    library: <LibraryTool />,
+    plan: <PlanTool onOpen={openProject} />,
     publish: <PublishTool current={{ videoId: project.videoId, name: project.name, props }} meta={meta} />,
     settings: <SettingsTool />,
     inspect: inspector,

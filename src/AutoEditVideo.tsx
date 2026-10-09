@@ -9,6 +9,8 @@ import { assetSrc, KenBurnsImage, musicVolume } from "./lib/media";
 import { CaptionsLayer } from "./CaptionedVideo";
 import { buildSegments, rangeToOut, refineWords, remapWords, resolveRange, sourceToOut, totalMs, type CutRange, type EdlInput, type Highlight, type Segment, type TimeRange } from "./autoedit/edl";
 import { faceAt, faceFraming, type FacePoint } from "./autoedit/face";
+import { gradeFilter } from "./lib/grades";
+import { EmojiPops, type EmojiItem } from "./lib/emoji";
 
 // لقطة B-roll: بتظهر فوق الكلام في فترة معينة (بتوقيت الفيديو الأصلي)، والصوت بيكمل عادي
 export type Broll = TimeRange & {
@@ -60,7 +62,38 @@ export type AutoEditProps = {
   faceFollow: string; // on | off
   // لقطات B-roll
   brolls: Broll[];
+  // فلتر الألوان
+  grade: string;
+  // إيموجي بينط على الكلمات المهمة (atMs بتوقيت الفيديو الأصلي)
+  emojis: EmojiItem[];
+  showEmojis: string; // on | off
+  // كليبات زيادة قبل الدمج (المونتاج من كذا فيديو)
+  clips: string[];
+  // شيل الخلفية
+  cutout: string; // فيديو الشخص من غير خلفية (WebM شفاف)
+  cutoutBg: string; // off | blur | color | image
+  cutoutColor: string;
+  cutoutImage: string;
+  // الترجمة والدبلجة
+  dubAudio: string; // الصوت المدبلج (بنفس توقيت الأصل)
+  dubWords: Caption[]; // كلام الدبلجة بتوقيته (للكابشن)
+  dubLang: string;
+  dubVideo: string; // نسخة الفيديو اللي الشفايف فيها ماشية مع الدبلجة
+  useDub: string; // on | off
 };
+
+// الكلام بتوقيت الفيديو الأصلي ← بتوقيت المونتاج (للكابشن المدبلج): الكلمة بتفضل لو نصها جوه جزء متساب
+export const remapPlainWords = (words: Caption[], segments: Segment[]): Caption[] =>
+  words.flatMap((w) => {
+    const mid = (w.startMs + w.endMs) / 2;
+    const seg = segments.find((s) => mid >= s.fromMs && mid <= s.toMs);
+    if (!seg) return [];
+    const start = sourceToOut(Math.max(w.startMs, seg.fromMs), segments)!;
+    const stop = sourceToOut(Math.min(w.endMs, seg.toMs), segments)!;
+    return [{ ...w, text: ` ${w.text.trim()}`, startMs: start, endMs: Math.max(start + 80, stop), timestampMs: null }];
+  });
+
+const dubOn = (p: AutoEditProps) => p.useDub === "on" && !!p.dubAudio;
 
 const FPS = 30;
 
@@ -108,16 +141,28 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
   const vol = (f: number) => base * Math.max(0, Math.min(1, f / 3, (frames - f) / 3));
   const trimBefore = Math.round((seg.fromMs / 1000) * fps);
 
+  // الصورة: الفيديو المدبلج (لو الشفايف اتحركت)، أو الشخص من غير خلفية، أو الأصل
+  const dub = dubOn(p);
+  const cut = !dub || !p.dubVideo ? (p.cutout && p.cutoutBg !== "off" ? p.cutout : "") : "";
+  const visual = dub && p.dubVideo ? p.dubVideo : cut || p.media;
+  // الصوت: الدبلجة، أو الصوت النضيف، أو صوت الفيديو الأصلي (لو الصورة جاية من ملف تاني)
+  const audio = dub ? p.dubAudio : p.cleanAudio || (visual !== p.media ? p.media : "");
+  const fit: React.CSSProperties = { width: "100%", height: "100%", objectFit: "cover", objectPosition: framing.objectPosition };
+
   return (
-    <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: framing.origin }}>
-      <OffthreadVideo
-        src={assetSrc(p.media)}
-        trimBefore={trimBefore}
-        muted={!!p.cleanAudio}
-        volume={p.cleanAudio ? 0 : vol}
-        style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: framing.objectPosition }}
-      />
-      {p.cleanAudio && <Html5Audio src={assetSrc(p.cleanAudio)} trimBefore={trimBefore} volume={vol} />}
+    <AbsoluteFill style={{ filter: gradeFilter(p.grade) }}>
+      {/* الخلفية ورا الشخص (لما الخلفية الأصلية تتشال) */}
+      {cut && p.cutoutBg === "blur" && (
+        <AbsoluteFill style={{ filter: "blur(28px) brightness(0.75)", transform: "scale(1.15)" }}>
+          <OffthreadVideo src={assetSrc(p.media)} trimBefore={trimBefore} muted style={fit} />
+        </AbsoluteFill>
+      )}
+      {cut && p.cutoutBg === "color" && <AbsoluteFill style={{ background: p.cutoutColor || "#111827" }} />}
+      {cut && p.cutoutBg === "image" && p.cutoutImage && <KenBurnsImage src={p.cutoutImage} duration={frames} index={index} />}
+      <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: framing.origin }}>
+        <OffthreadVideo src={assetSrc(visual)} trimBefore={trimBefore} transparent={!!cut} muted={!!audio} volume={audio ? 0 : vol} style={fit} />
+      </AbsoluteFill>
+      {audio && <Html5Audio src={assetSrc(audio)} trimBefore={trimBefore} volume={vol} />}
     </AbsoluteFill>
   );
 };
@@ -156,7 +201,20 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
   const font = getFont(p.font);
   const input = edlInput(p);
   const segments = useMemo(() => buildSegments(input), [p]);
-  const captions = useMemo(() => (p.captions === "on" ? remapWords(input, segments) : []), [p, segments]);
+  const captions = useMemo(
+    () => (p.captions !== "on" ? [] : dubOn(p) && (p.dubWords ?? []).length ? remapPlainWords(p.dubWords, segments) : remapWords(input, segments)),
+    [p, segments],
+  );
+  // الإيموجي بتوقيت المونتاج (اللي كلمته اتقصت بيتشال)
+  const emojiItems = useMemo(() => {
+    if (p.showEmojis === "off") return [];
+    const words = refineWords(p.words ?? [], p.speech ?? []);
+    return (p.emojis ?? []).flatMap((e) => {
+      const src = e.fromWord !== undefined && words[e.fromWord] ? words[e.fromWord].startMs : e.atMs;
+      const out = sourceToOut(src + 1, segments);
+      return out === null ? [] : [{ atMs: out, emoji: e.emoji }];
+    });
+  }, [p, segments]);
   const brolls = useMemo(() => brollSpans(p, segments), [p, segments]);
 
   if (!p.media) {
@@ -220,6 +278,8 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
           </div>
         </AbsoluteFill>
       )}
+
+      {emojiItems.length > 0 && <EmojiPops items={emojiItems} />}
 
       {captions.length > 0 && (
         <CaptionsLayer

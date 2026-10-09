@@ -5,6 +5,9 @@ import { buildSegments, outToSource, rangeToOut, refineWords, resolveRange, sour
 import { edlInput, type AutoEditProps, type Broll } from "../src/AutoEditVideo";
 import { FaceTrack } from "./FaceTrack";
 import { BrollPanel, newBroll } from "./BrollPanel";
+import { ClipsJoin, CutoutTool, DubTool, resetForMedia } from "./AutoEditExtras";
+import { EmojiTool } from "./EmojiTool";
+import { platforms } from "./platforms";
 import { AssetPicker } from "./fields";
 import { sendToQueue, type ExportSettings } from "./ExportCard";
 import { useAiStatus } from "./ai";
@@ -32,6 +35,8 @@ export const AutoEditPanel: React.FC<{
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [reelCount, setReelCount] = useState(0); // 0 = أوتوماتيك حسب طول الفيديو
+  const [reelPlatform, setReelPlatform] = useState("tiktok");
 
   // ===== أول ما الفيديو يترفع: المدة + فين فيه كلام (قص السكوت بيشتغل على طول من غير تفريغ) =====
   const detectSpeech = async () => {
@@ -98,7 +103,7 @@ export const AutoEditPanel: React.FC<{
       const r = await fetch("/api/autoedit/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ words: p.words.map((w) => ({ text: w.text, startMs: w.startMs, endMs: w.endMs })), maxHighlights: origMs > 120000 ? 5 : 3 }),
+        body: JSON.stringify({ words: p.words.map((w) => ({ text: w.text, startMs: w.startMs, endMs: w.endMs })), maxHighlights: reelCount || (origMs > 600000 ? 10 : origMs > 120000 ? 5 : 3) }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
@@ -121,11 +126,42 @@ export const AutoEditPanel: React.FC<{
   const exportHighlights = async () => {
     setError(null);
     try {
-      const items = p.highlights.map((h) => ({ videoId: "AutoEdit", name: h.title, props: { ...props, range: { fromMs: h.fromMs, toMs: h.toMs } as TimeRange } }));
+      const items = p.highlights.map((h) => ({
+        videoId: "AutoEdit",
+        name: h.title,
+        props: { ...props, range: { fromMs: h.fromMs, toMs: h.toMs } as TimeRange },
+        // كابشن النشر بيتحفظ في ملف نصي جنب كل مقطع
+        caption: h.post ? `${h.post.caption}\n\n${h.post.hashtags.map((t) => `#${t.replace(/^#/, "")}`).join(" ")}` : "",
+      }));
       await sendToQueue(`${projectName} - ريلز`, items, exportSettings);
       setMsg(`اتبعت ${items.length} مقطع للطابور. تابعهم في أداة التصدير.`);
     } catch (e) {
       setError((e as Error).message);
+    }
+  };
+
+  // ===== كابشن نشر لكل مقطع ريلز =====
+  const writeReelPosts = async () => {
+    setError(null);
+    const platform = platforms.find((x) => x.id === reelPlatform)!;
+    try {
+      for (let i = 0; i < p.highlights.length; i++) {
+        setBusy(`بيكتب كابشن المقطع ${i + 1} من ${p.highlights.length}…`);
+        const h = p.highlights[i];
+        const r = await fetch("/api/ai/post", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: platform.name, dialect: "eg", content: `${h.title} | ${h.hook} | ${wordsIn(h)}`.slice(0, 6000), hashtags: platform.hashtags }),
+        });
+        const post = await r.json();
+        if (!r.ok) throw new Error(post.error);
+        updateProps((prev) => ({ ...prev, highlights: (prev.highlights as Highlight[]).map((x, j) => (j === i ? { ...x, post: { caption: post.caption, hashtags: post.hashtags } } : x)) }));
+      }
+      setMsg("الكابشن جاهز لكل المقاطع، وهيتحفظ في ملف نصي جنب كل فيديو لما تصدّر.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -155,13 +191,15 @@ export const AutoEditPanel: React.FC<{
         <AssetPicker
           kind="video"
           value={p.media}
-          onChange={(v) => updateProps({ media: v, mediaDuration: 0, cleanAudio: "", words: [], speech: [], cuts: [], emphasis: [], highlights: [], range: null })}
+          onChange={(v) => updateProps({ ...resetForMedia(v), clips: p.clips ?? [] })}
         />
+        {p.media && <ClipsJoin p={p} update={(x) => updateProps(x)} />}
         <div className="hint">صوّر نفسك وانت بتتكلم عادي، حتى لو غلطت أو سكتّ أو عدت جملة. الاستوديو هيشيل ده كله.</div>
         {p.media && <CleanAudio media={p.media} clean={p.cleanAudio} onChange={(v) => updateProps({ cleanAudio: v })} />}
         {p.media && (
           <FaceTrack media={p.media} track={p.faceTrack ?? []} onTrack={(faceTrack, size) => updateProps({ faceTrack, mediaWidth: size.width, mediaHeight: size.height })} />
         )}
+        {p.media && <CutoutTool p={p} update={(x) => updateProps(x)} />}
       </div>
 
       {/* ② التفريغ */}
@@ -203,6 +241,17 @@ export const AutoEditPanel: React.FC<{
           <button type="button" className="btn-small btn-ai" onClick={analyze} disabled={!!busy || !ai?.available}>
             ✨ {p.cuts.length || p.highlights.length ? "حلّل تاني" : "حلّل الفيديو"}
           </button>
+          <label className="field">
+            <span>عدد مقاطع الريلز</span>
+            <select value={reelCount} onChange={(e) => setReelCount(Number(e.target.value))}>
+              <option value={0}>أوتوماتيك حسب طول الفيديو</option>
+              {[1, 3, 5, 8, 10].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           {ai && !ai.available && <KeyHint>محتاج مفتاح Claude.</KeyHint>}
 
 
@@ -224,6 +273,31 @@ export const AutoEditPanel: React.FC<{
             }}
             playheadSourceMs={outToSource((frame / fps) * 1000, segments)}
           />
+        </div>
+      )}
+
+      {/* إيموجي */}
+      {p.words.length > 0 && (
+        <div className="ae-step">
+          <span className="ae-step-title">😀 إيموجي على الكلمات المهمة ({(p.emojis ?? []).length})</span>
+          <EmojiTool
+            words={words}
+            items={p.emojis ?? []}
+            linkWords
+            onChange={(emojis) => updateProps({ emojis })}
+            onSeek={(ms) => {
+              const out = sourceToOut(ms + 1, segments);
+              if (out !== null) seek(Math.round((out / 1000) * fps));
+            }}
+          />
+        </div>
+      )}
+
+      {/* الترجمة والدبلجة */}
+      {p.media && (
+        <div className="ae-step">
+          <span className="ae-step-title">🌍 ترجمة ودبلجة</span>
+          <DubTool p={p} update={(x) => updateProps(x)} />
         </div>
       )}
 
@@ -272,6 +346,35 @@ export const AutoEditPanel: React.FC<{
               </button>
             </div>
           ))}
+          {p.highlights.some((h) => h.post) && (
+            <details className="ae-posts">
+              <summary className="hint">الكابشن لكل مقطع</summary>
+              {p.highlights.map((h, i) =>
+                h.post ? (
+                  <div key={i} className="ae-post">
+                    <b>{h.title}</b>
+                    <p dir="auto">{h.post.caption}</p>
+                    <small dir="auto">{h.post.hashtags.map((t) => `#${t.replace(/^#/, "")}`).join(" ")}</small>
+                  </div>
+                ) : null,
+              )}
+            </details>
+          )}
+          <div className="row-2">
+            <label className="field">
+              <span>المنصة</span>
+              <select value={reelPlatform} onChange={(e) => setReelPlatform(e.target.value)}>
+                {platforms.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn-small btn-ai" onClick={writeReelPosts} disabled={!!busy || !ai?.available}>
+              📝 اكتب كابشن لكل مقطع
+            </button>
+          </div>
           <button type="button" className="btn-primary" onClick={exportHighlights}>
             ⬇ صدّر كل المقاطع ({p.highlights.length})
           </button>

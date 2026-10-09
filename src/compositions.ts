@@ -9,6 +9,7 @@ import { formatOptions } from "./lib/formats";
 import { fontOptions } from "./lib/fonts";
 import { animationOptions } from "./lib/AnimatedText";
 import { transitionOptions } from "./lib/transitions";
+import { gradeOptions } from "./lib/grades";
 import type { Field } from "./lib/fieldTypes";
 import { ProjectVideo, calculateProject, type ProjectProps } from "./ProjectVideo";
 import { newScene } from "./scenes/defs";
@@ -145,12 +146,21 @@ const captionedDefaults: CaptionedProps = {
   highlight: "#facc15",
   music: "",
   musicVolume: 15,
+  grade: "none",
+  emojis: [],
+  showEmojis: "on",
 };
 
 const captionStyles = [
   { value: "tiktok", label: "تيك توك (الكلمة الحالية بتنور)" },
+  { value: "bold", label: "عريض بحدود (ستايل صناع المحتوى الكبار)" },
+  { value: "beast", label: "ألوان زاهية بتنط (شبابي وجريء)" },
+  { value: "boxed", label: "الكلمة جوه بوكس ملون" },
+  { value: "neon", label: "نيون متوهج" },
   { value: "karaoke", label: "كاريوكي (الكلام بيتلون وانت بتقوله)" },
+  { value: "typewriter", label: "الكلام بيظهر كلمة كلمة" },
   { value: "pop", label: "كلمة كلمة كبيرة بتنط" },
+  { value: "minimal", label: "هادي ونضيف" },
   { value: "subtitle", label: "ترجمة كلاسيكية" },
 ];
 
@@ -227,6 +237,19 @@ const autoEditDefaults: AutoEditProps = {
   mediaHeight: 0,
   faceFollow: "on",
   brolls: [],
+  grade: "none",
+  emojis: [],
+  showEmojis: "on",
+  clips: [],
+  cutout: "",
+  cutoutBg: "blur",
+  cutoutColor: "#111827",
+  cutoutImage: "",
+  dubAudio: "",
+  dubWords: [],
+  dubLang: "",
+  dubVideo: "",
+  useDub: "off",
 };
 
 export const videos: VideoDef[] = [
@@ -256,6 +279,7 @@ export const videos: VideoDef[] = [
         group: "الحركة",
       },
       { key: "faceFollow", label: "الكادر يتبع الوش (بعد تتبع الوش)", type: "select", options: onOff, group: "الحركة" },
+      { key: "showEmojis", label: "الإيموجي على الكلمات المهمة", type: "select", options: onOff, group: "الحركة" },
       { key: "showHook", label: "العنوان الشادد", type: "select", options: onOff, group: "الحركة" },
       { key: "progressBar", label: "شريط التقدم", type: "select", options: onOff, group: "الحركة" },
       { key: "captions", label: "الكابشن", type: "select", options: onOff, group: "الكابشن" },
@@ -276,6 +300,7 @@ export const videos: VideoDef[] = [
       { key: "textColor", label: "لون الكلام", type: "color", group: "الكابشن" },
       { key: "highlight", label: "اللون المميز", type: "color", group: "الكابشن" },
       { key: "format", label: "المقاس", type: "select", options: formatOptions, group: "الشكل" },
+      { key: "grade", label: "فلتر الألوان", type: "select", options: gradeOptions, group: "الشكل" },
       { key: "mediaVolume", label: "صوت الفيديو", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
       { key: "music", label: "مزيكا خلفية", type: "audio", group: "الصوت" },
       { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
@@ -306,13 +331,7 @@ export const videos: VideoDef[] = [
         key: "grade",
         label: "التلوين",
         type: "select",
-        options: [
-          { value: "warm", label: "دافي (ذهبي)" },
-          { value: "teal-orange", label: "سينما هوليوود (Teal & Orange)" },
-          { value: "cool", label: "بارد وعصري" },
-          { value: "mono", label: "أبيض وأسود" },
-          { value: "none", label: "طبيعي" },
-        ],
+        options: gradeOptions,
         group: "الشكل السينمائي",
       },
       { key: "grain", label: "حبيبات الفيلم", type: "select", options: onOff, group: "الشكل السينمائي" },
@@ -372,6 +391,8 @@ export const videos: VideoDef[] = [
       { key: "highlight", label: "لون الكلمة الحالية", type: "color", group: "شكل الكابشن" },
       { key: "title", label: "عنوان ثابت فوق (اختياري)", type: "text", group: "الشكل" },
       { key: "format", label: "المقاس", type: "select", options: formatOptions, group: "الشكل" },
+      { key: "grade", label: "فلتر الألوان", type: "select", options: gradeOptions, group: "الشكل" },
+      { key: "showEmojis", label: "الإيموجي على الكلمات المهمة", type: "select", options: onOff, group: "شكل الكابشن" },
       {
         key: "fit",
         label: "الفيديو في الإطار",

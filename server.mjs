@@ -1,13 +1,17 @@
 // سيرفر صغير بيستقبل طلبات التصدير من الاستوديو العربي ويعمل render للفيديو
 import express from "express";
 import path from "node:path";
+import os from "node:os";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { createQueue, formats } from "./scripts/render-queue.mjs";
 import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath } from "./scripts/whisper.mjs";
-import { AiError, aiStatus, analyzeTalk, generateVideo, improveScene, planFilm, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
+import { AiError, aiStatus, analyzeTalk, contentPlan, generateVideo, improveScene, pickEmojis, planFilm, reviewVideo, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
+import { dubLanguages, dubMedia, joinClips, MediaError } from "./scripts/media.mjs";
+import { bundle } from "@remotion/bundler";
+import { renderStill, selectComposition } from "@remotion/renderer";
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
@@ -26,7 +30,9 @@ try {
 const outDir = path.join(root, "out");
 const publicDir = path.join(root, "public");
 const uploadsDir = path.join(publicDir, "uploads");
-const brandFile = path.join(root, "brand.json");
+// بيانات شغلك (المشاريع، البراند، المكتبة، القوالب، الخطة). MONTAG_DATA_DIR للاختبارات بس
+const dataDir = process.env.MONTAG_DATA_DIR || root;
+const brandFile = path.join(dataDir, "brand.json");
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -104,8 +110,20 @@ app.get("/api/media-info", async (req, res) => {
   res.json({ duration: await mediaDuration(file), kind: kindOf(file) });
 });
 
+// ===== مكتبة الملفات =====
+// الأسماء والفولدرات اللي بتديها للملفات متحفظة في library.json (الملف نفسه مبيتغيرش اسمه)
+const libraryFile = path.join(dataDir, "library.json");
+const readLibrary = () => {
+  try {
+    return JSON.parse(fs.readFileSync(libraryFile, "utf8"));
+  } catch {
+    return {};
+  }
+};
+
 // قايمة الملفات المتاحة (اللي رفعتها + ملفات التجربة)
-app.get("/api/assets", (_req, res) => {
+const listAssets = () => {
+  const meta = readLibrary();
   const list = [];
   for (const folder of ["uploads", "demo"]) {
     const dir = path.join(publicDir, folder);
@@ -113,12 +131,15 @@ app.get("/api/assets", (_req, res) => {
     for (const f of fs.readdirSync(dir)) {
       const kind = kindOf(f);
       if (!kind) continue;
-      list.push({ path: `${folder}/${f}`, name: f, kind, folder, time: fs.statSync(path.join(dir, f)).mtimeMs });
+      const p = `${folder}/${f}`;
+      const st = fs.statSync(path.join(dir, f));
+      list.push({ path: p, name: f, kind, folder, time: st.mtimeMs, size: st.size, label: meta[p]?.label ?? "", group: meta[p]?.group ?? "" });
     }
   }
   list.sort((a, b) => (a.folder === b.folder ? b.time - a.time : a.folder === "uploads" ? -1 : 1));
-  res.json(list);
-});
+  return list;
+};
+app.get("/api/assets", (_req, res) => res.json(listAssets()));
 
 // دفعات الشيت الكبيرة (مئات الفيديوهات) ممكن تبقى كام ميجا
 app.use(express.json({ limit: "50mb" }));
@@ -136,8 +157,69 @@ app.put("/api/settings", (req, res) => {
 });
 app.post("/api/settings/test/:id", async (req, res) => res.json(await keyStore.test(req.params.id)));
 
+// اسم وفولدر لملف في المكتبة
+app.put("/api/library/meta", (req, res) => {
+  const p = String(req.body?.path ?? "");
+  if (!publicPath(p)) return res.status(404).json({ error: "الملف مش موجود" });
+  const meta = readLibrary();
+  meta[p] = { label: String(req.body?.label ?? meta[p]?.label ?? "").slice(0, 80), group: String(req.body?.group ?? meta[p]?.group ?? "").slice(0, 40) };
+  fs.writeFileSync(libraryFile, JSON.stringify(meta, null, 2));
+  res.json({ ok: true });
+});
+// مسح ملف من المكتبة (الملفات اللي انت رفعتها بس، مش ملفات التجربة)
+app.delete("/api/library", (req, res) => {
+  const p = String(req.query.path ?? "");
+  const file = publicPath(p);
+  if (!file || !p.startsWith("uploads/")) return res.status(400).json({ error: "تقدر تمسح الملفات اللي رفعتها بس" });
+  tryRemove(file);
+  const meta = readLibrary();
+  delete meta[p];
+  fs.writeFileSync(libraryFile, JSON.stringify(meta, null, 2));
+  res.json({ ok: true });
+});
+
+// ===== قوالبي: أي مشروع تحفظه كقالب وتبدأ منه بعدين =====
+const templatesDir = path.join(dataDir, "templates");
+fs.mkdirSync(templatesDir, { recursive: true });
+app.get("/api/templates", (_req, res) => {
+  const list = fs
+    .readdirSync(templatesDir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(templatesDir, f), "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  res.json(list);
+});
+app.post("/api/templates", (req, res) => {
+  const { name, videoId, props } = req.body ?? {};
+  if (typeof videoId !== "string" || !props || typeof props !== "object") return res.status(400).json({ error: "بيانات القالب مش صحيحة" });
+  const id = Date.now().toString(36);
+  const t = { id, name: String(name || "قالب").slice(0, 80), videoId, props, createdAt: Date.now() };
+  fs.writeFileSync(path.join(templatesDir, `${id}.json`), JSON.stringify(t));
+  res.json(t);
+});
+app.delete("/api/templates/:id", (req, res) => {
+  if (!/^[a-z0-9]{4,20}$/.test(req.params.id)) return res.status(400).json({ error: "رقم القالب مش صحيح" });
+  tryRemove(path.join(templatesDir, `${req.params.id}.json`));
+  res.json({ ok: true });
+});
+
+// ===== خطة المحتوى (متحفظة في content-plan.json) =====
+const planFile = path.join(dataDir, "content-plan.json");
+app.get("/api/content-plan", (_req, res) => res.json(fs.existsSync(planFile) ? JSON.parse(fs.readFileSync(planFile, "utf8")) : null));
+app.put("/api/content-plan", (req, res) => {
+  fs.writeFileSync(planFile, JSON.stringify(req.body ?? null, null, 2));
+  res.json({ ok: true });
+});
+
 // ===== المشاريع (كل مشروع ملف JSON في projects/) =====
-const projectsDir = path.join(root, "projects");
+const projectsDir = path.join(dataDir, "projects");
 fs.mkdirSync(projectsDir, { recursive: true });
 const validId = (id) => /^[a-z0-9]{4,32}$/.test(id);
 const projectFile = (id) => path.join(projectsDir, `${id}.json`);
@@ -547,6 +629,118 @@ app.post("/api/film/lipsync", (req, res) => {
   startFilmJob(res, (step) => film.lipsync({ projectId: String(b.projectId), shot: b.shot ?? {}, onProgress: step }));
 });
 
+// ===== إيموجي على الكلمات المهمة =====
+app.post(
+  "/api/ai/emoji",
+  aiRoute(async (b) => {
+    const words = (Array.isArray(b.words) ? b.words : []).slice(0, 8000).map((w) => clip(w, 40));
+    if (words.length < 3) throw new AiError("محتاج كلام الأول (فرّغ الفيديو)");
+    const r = await pickEmojis({ words, max: Math.min(30, Math.max(1, Number(b.max) || 8)) });
+    return { picks: (r.picks ?? []).filter((x) => Number.isInteger(x.word) && x.word >= 0 && x.word < words.length).map((x) => ({ word: x.word, emoji: String(x.emoji).slice(0, 8) })) };
+  }),
+);
+
+// ===== خطة المحتوى =====
+app.post(
+  "/api/ai/plan",
+  aiRoute((b) =>
+    contentPlan({
+      business: clip(b.business, 2000),
+      audience: clip(b.audience, 500),
+      dialect: clip(b.dialect, 20),
+      platform: clip(b.platform, 40),
+      goal: clip(b.goal, 300),
+      count: Math.min(30, Math.max(3, Number(b.count) || 7)),
+    }),
+  ),
+);
+
+// ===== دمج كذا كليب في فيديو واحد =====
+app.post("/api/media/join", (req, res) => {
+  const files = (Array.isArray(req.body?.paths) ? req.body.paths : []).slice(0, 30).map(publicPath);
+  if (files.length < 2 || files.some((f) => !f)) return res.status(400).json({ error: "اختار كليبين على الأقل (موجودين)" });
+  startFilmJob(res, async (step) => {
+    const name = `joined-${Date.now().toString(36)}.mp4`;
+    try {
+      const r = await joinClips({ files, dest: path.join(uploadsDir, name), onProgress: step });
+      return { path: `uploads/${name}`, ...r };
+    } catch (e) {
+      throw e instanceof MediaError ? new FilmError(`الدمج فشل: ${e.message.slice(0, 200)}`) : e;
+    }
+  });
+});
+
+// ===== شيل الخلفية =====
+app.post("/api/autoedit/cutout", (req, res) => {
+  if (needFal(res)) return;
+  const p = String(req.body?.path ?? "");
+  if (!publicPath(p)) return res.status(404).json({ error: "الفيديو مش موجود" });
+  startFilmJob(res, (step) => film.cutout({ video: p, onProgress: step }));
+});
+
+// ===== الترجمة والدبلجة =====
+app.get("/api/autoedit/dub/languages", (_req, res) => res.json(dubLanguages));
+app.post("/api/autoedit/dub", (req, res) => {
+  const file = publicPath(req.body?.path);
+  if (!file) return res.status(404).json({ error: "الفيديو مش موجود" });
+  if (!process.env.ELEVENLABS_API_KEY && process.env.AI_MOCK !== "1") return res.status(400).json({ error: "حط مفتاح ElevenLabs من ⚙️ الإعدادات عشان الدبلجة" });
+  const langs = dubLanguages.map((l) => l.value);
+  const target = langs.includes(req.body?.targetLang) ? req.body.targetLang : "en";
+  const source = langs.includes(req.body?.sourceLang) ? req.body.sourceLang : "ar";
+  startFilmJob(res, async (step) => {
+    try {
+      return await dubMedia({ file, sourceLang: source, targetLang: target, uploadsDir, onProgress: step });
+    } catch (e) {
+      throw e instanceof MediaError ? new FilmError(e.message) : e;
+    }
+  });
+});
+// حركة الشفايف على الدبلجة (الفيديو كله)
+app.post("/api/autoedit/dub-lips", (req, res) => {
+  if (needFal(res)) return;
+  startFilmJob(res, (step) => film.lipsyncFile({ video: String(req.body?.video ?? ""), audio: String(req.body?.audio ?? ""), onProgress: step }));
+});
+
+// ===== مراجعة قبل التصدير: لقطات من الفيديو ← Claude =====
+// الـ bundle بيتعمل مرة واحدة بس (أول مراجعة بتاخد وقت أطول شوية)
+let reviewBundle = null;
+app.post("/api/ai/review", (req, res) => {
+  if (!aiStatus().available) return res.status(400).json({ error: "حط مفتاح Claude من ⚙️ الإعدادات" });
+  const { videoId, props, info } = req.body ?? {};
+  if (!videoIdOk(videoId) || !props || typeof props !== "object") return res.status(400).json({ error: "بيانات الفيديو مش صحيحة" });
+  startFilmJob(res, async (step) => {
+    step("بيجهز الفيديو");
+    reviewBundle ??= bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
+    const serveUrl = await reviewBundle.catch((e) => {
+      reviewBundle = null;
+      throw e;
+    });
+    const composition = await selectComposition({ serveUrl, id: videoId, inputProps: props });
+    const n = 6;
+    // أول لقطة بعد 0.8 ثانية (البداية اللي الناس بتشوفها)، والباقي متوزع بالتساوي لحد الآخر
+    const last = composition.durationInFrames - 1;
+    const first = Math.min(last, Math.round(composition.fps * 0.8));
+    const frames = Array.from({ length: n }, (_, i) => Math.round(first + ((last - first) * i) / (n - 1)));
+    const images = [];
+    for (const [i, frame] of frames.entries()) {
+      step(`بياخد لقطات من الفيديو (${i + 1}/${n})`);
+      const out = path.join(os.tmpdir(), `montag-review-${Date.now().toString(36)}-${i}.jpg`);
+      try {
+        await renderStill({ serveUrl, composition, inputProps: props, frame, output: out, imageFormat: "jpeg", jpegQuality: 70, scale: Math.min(1, 720 / Math.max(composition.width, composition.height)) });
+        images.push(fs.readFileSync(out).toString("base64"));
+      } finally {
+        tryRemove(out);
+      }
+    }
+    step("Claude بيتفرج ويراجع");
+    const r = await reviewVideo({
+      images,
+      info: { ...(info && typeof info === "object" ? info : {}), width: composition.width, height: composition.height, seconds: Math.round(composition.durationInFrames / composition.fps), frames: frames.map((f) => `${(f / composition.fps).toFixed(1)}s`) },
+    });
+    return { ...r, frames: frames.map((f) => f / composition.fps) };
+  });
+});
+
 // ===== لقطات B-roll (Pexels أو صورة متولدة) =====
 const broll = createBroll({ publicDir, film });
 app.post("/api/broll/fetch", (req, res) => {
@@ -591,7 +785,7 @@ app.post("/api/queue", (req, res) => {
   const format = formats[settings.format] ? settings.format : "mp4";
   const batch = queue.add({
     name,
-    items: items.map((i) => ({ name: String(i.name ?? "video"), videoId: i.videoId, props: i.props })),
+    items: items.map((i) => ({ name: String(i.name ?? "video"), videoId: i.videoId, props: i.props, caption: String(i.caption ?? "").slice(0, 5000) })),
     settings: { format, quality: settings.quality === "draft" ? "draft" : "high", thumbnail: !!settings.thumbnail, loudness: settings.loudness !== false },
   });
   res.json(batch);

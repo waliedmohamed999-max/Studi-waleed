@@ -4,7 +4,7 @@ import type { Field } from "../src/compositions";
 import type { Slide } from "../src/Promo";
 
 type Kind = "image" | "audio" | "video" | "media"; // media = صوت أو فيديو
-type Asset = { path: string; name: string; kind: "image" | "audio" | "video"; folder: string };
+type Asset = { path: string; name: string; kind: "image" | "audio" | "video"; folder: string; label?: string };
 const isVideo = (p: string) => /\.(mp4|webm|mov|m4v|mkv)$/i.test(p);
 const matches = (want: Kind, got: Asset["kind"]) => (want === "media" ? got === "audio" || got === "video" : want === got);
 
@@ -119,7 +119,7 @@ export const AssetPicker: React.FC<{
                   setOpen(false);
                 }}
               >
-                {a.kind === "video" ? "🎬" : "🎵"} {shortName(a.path)} {a.folder === "demo" && <small>(تجربة)</small>}
+                {a.kind === "video" ? "🎬" : "🎵"} {a.label || shortName(a.path)} {a.folder === "demo" && <small>(تجربة)</small>}
               </button>
             ),
           )}

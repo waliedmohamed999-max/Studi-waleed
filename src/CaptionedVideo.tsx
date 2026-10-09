@@ -15,8 +15,15 @@ import { createTikTokStyleCaptions, type Caption, type TikTokPage } from "@remot
 import { getFont } from "./lib/fonts";
 import { getFormat } from "./lib/formats";
 import { assetSrc, KenBurnsImage, musicVolume } from "./lib/media";
+import { gradeFilter } from "./lib/grades";
+import { EmojiPops, type EmojiItem } from "./lib/emoji";
 
-export type CaptionStyle = "tiktok" | "pop" | "karaoke" | "subtitle";
+export type CaptionStyle = "tiktok" | "pop" | "karaoke" | "subtitle" | "bold" | "beast" | "boxed" | "neon" | "minimal" | "typewriter";
+
+// الأشكال اللي بتعرض كلمتين تلاتة بس في المرة (زي كبار صناع المحتوى)
+const shortPages: string[] = ["bold", "beast", "boxed"];
+// ألوان "beast": كل كلمة مميزة بلون مختلف
+const beastColors = ["#facc15", "#22c55e", "#ef4444", "#38bdf8", "#f472b6"];
 
 export type CaptionedProps = {
   format: string;
@@ -39,6 +46,9 @@ export type CaptionedProps = {
   highlight: string;
   music: string;
   musicVolume: number;
+  grade: string; // فلتر الألوان
+  emojis: EmojiItem[]; // atMs بتوقيت الفيديو نفسه
+  showEmojis: string;
 };
 
 const FPS = 30;
@@ -92,6 +102,15 @@ const CaptionPage: React.FC<{ page: TikTokPage; p: CaptionLook }> = ({ page, p }
     );
   }
 
+  if (style === "minimal") {
+    // هادي ونضيف: سطر رفيع من غير حدود تقيلة
+    return (
+      <div dir="auto" style={{ ...base, fontWeight: 500, fontSize: size * 0.72, color: p.textColor, opacity: enter, textShadow: "0 2px 12px rgba(0,0,0,0.6)", letterSpacing: 0.3 }}>
+        {page.text.trim()}
+      </div>
+    );
+  }
+
   if (style === "subtitle") {
     // ترجمة كلاسيكية: السطر كله على خلفية غامقة
     return (
@@ -134,7 +153,42 @@ const CaptionPage: React.FC<{ page: TikTokPage; p: CaptionLook }> = ({ page, p }
         let color = p.textColor;
         let scale = 1;
         let opacity = 1;
-        if (style === "karaoke") {
+        const extra: React.CSSProperties = {};
+        // نطة صغيرة أول ما الكلمة تتقال
+        const wordIn = spring({ frame: frame - ((t.fromMs - page.startMs) / 1000) * fps, fps, config: { damping: 10, stiffness: 200 } });
+        if (style === "typewriter") {
+          // الكلام بيظهر كلمة كلمة وانت بتقوله
+          if (!active && !past) return null;
+          opacity = Math.min(1, wordIn * 1.5);
+        } else if (style === "bold") {
+          // عريض وواضح، والكلمة الحالية ملونة وبتكبر
+          color = active ? p.highlight : p.textColor;
+          scale = active ? 1 + 0.18 * wordIn : 1;
+          extra.WebkitTextStroke = `${size * 0.06}px #000`;
+          extra.paintOrder = "stroke fill";
+        } else if (style === "beast") {
+          // ألوان زاهية بتتغير مع كل كلمة، وحدود سودا تقيلة، وميلة خفيفة
+          color = active ? beastColors[i % beastColors.length] : p.textColor;
+          scale = active ? 1 + 0.25 * wordIn : 1;
+          extra.WebkitTextStroke = `${size * 0.09}px #000`;
+          extra.paintOrder = "stroke fill";
+          extra.rotate = active ? `${(i % 2 ? 1 : -1) * 3 * wordIn}deg` : "0deg";
+        } else if (style === "boxed") {
+          // الكلمة الحالية جوه بوكس ملون
+          color = active ? "#000" : p.textColor;
+          if (active) {
+            extra.background = p.highlight;
+            extra.borderRadius = size * 0.18;
+            extra.padding = `0 ${size * 0.18}px`;
+            extra.textShadow = "none";
+          }
+          scale = active ? 1 + 0.06 * wordIn : 1;
+        } else if (style === "neon") {
+          // توهج بلون مميز
+          color = active ? "#fff" : p.textColor;
+          extra.textShadow = `0 0 ${size * 0.15}px ${p.highlight}, 0 0 ${size * 0.4}px ${p.highlight}${active ? ", 0 0 " + size * 0.7 + "px " + p.highlight : ""}`;
+          opacity = active || past ? 1 : 0.7;
+        } else if (style === "karaoke") {
           // الكلام بيتلون وانت بتقوله
           color = active || past ? p.highlight : p.textColor;
           opacity = active || past ? 1 : 0.55;
@@ -151,6 +205,7 @@ const CaptionPage: React.FC<{ page: TikTokPage; p: CaptionLook }> = ({ page, p }
               display: "inline-block",
               transform: `scale(${scale})`,
               textShadow: outline,
+              ...extra,
             }}
           >
             {t.text.trim()}
@@ -170,10 +225,11 @@ export const CaptionsLayer: React.FC<{ captions: Caption[]; look: CaptionLook; b
     () =>
       createTikTokStyleCaptions({
         captions: [...captions].sort((a, b) => a.startMs - b.startMs),
-        combineTokensWithinMilliseconds: Math.max(200, look.wordsTogetherMs || 1200),
+        // الأشكال العريضة بتعرض كلمات أقل في المرة عشان تتقري بسرعة
+        combineTokensWithinMilliseconds: shortPages.includes(look.captionStyle) ? Math.min(650, Math.max(200, look.wordsTogetherMs || 650)) : Math.max(200, look.wordsTogetherMs || 1200),
         breakOnSilenceAfterMilliseconds: breakOnSilenceMs,
       }).pages,
-    [captions, look.wordsTogetherMs, breakOnSilenceMs],
+    [captions, look.wordsTogetherMs, look.captionStyle, breakOnSilenceMs],
   );
   const justify = look.position === "top" ? "flex-start" : look.position === "center" ? "center" : "flex-end";
 
@@ -218,16 +274,18 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
   return (
     <AbsoluteFill style={{ background: `linear-gradient(160deg, ${p.bgFrom}, ${p.bgTo})` }}>
       {/* ===== الخلفية ===== */}
-      {hasVideo ? (
-        <OffthreadVideo
-          src={assetSrc(p.media)}
-          muted={!!p.cleanAudio}
-          volume={p.cleanAudio ? 0 : Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
-          style={{ width: "100%", height: "100%", objectFit: p.fit === "contain" ? "contain" : "cover" }}
-        />
-      ) : (
-        p.bgImage && <KenBurnsImage src={p.bgImage} duration={durationInFrames} />
-      )}
+      <AbsoluteFill style={{ filter: gradeFilter(p.grade) }}>
+        {hasVideo ? (
+          <OffthreadVideo
+            src={assetSrc(p.media)}
+            muted={!!p.cleanAudio}
+            volume={p.cleanAudio ? 0 : Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
+            style={{ width: "100%", height: "100%", objectFit: p.fit === "contain" ? "contain" : "cover" }}
+          />
+        ) : (
+          p.bgImage && <KenBurnsImage src={p.bgImage} duration={durationInFrames} />
+        )}
+      </AbsoluteFill>
       {(hasAudio || (hasVideo && p.cleanAudio)) && (
         <Html5Audio src={assetSrc(p.cleanAudio || p.media)} volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100} />
       )}
@@ -257,6 +315,8 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
           {p.title}
         </div>
       )}
+
+      {p.showEmojis !== "off" && (p.emojis ?? []).length > 0 && <EmojiPops items={p.emojis} />}
 
       {/* ===== الكابشن ===== */}
       <CaptionsLayer captions={p.captions} look={p} />

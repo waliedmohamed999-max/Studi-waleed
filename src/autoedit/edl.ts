@@ -8,7 +8,7 @@ import type { Caption } from "@remotion/captions";
 
 export type CutRange = { fromMs: number; toMs: number; reason: string; enabled: boolean; fromWord?: number; toWord?: number };
 export type TimeRange = { fromMs: number; toMs: number };
-export type Highlight = { title: string; hook: string; fromMs: number; toMs: number; fromWord?: number; toWord?: number };
+export type Highlight = { title: string; hook: string; fromMs: number; toMs: number; fromWord?: number; toWord?: number; post?: { caption: string; hashtags: string[] } };
 export type Segment = TimeRange & { outMs: number }; // outMs = بيبدأ فين في الفيديو بعد المونتاج
 
 // الكلمات اللي ملهاش معنى (إممم، آآآ، همم، uh...) بعد ما نوحّد الألف ونشيل التشكيل والترقيم

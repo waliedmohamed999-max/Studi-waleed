@@ -9,3 +9,8 @@ whisper/
 public/uploads/
 projects/
 brand.json
+
+# المكتبة وقوالبك وخطة المحتوى (بيانات شغلك)
+library.json
+templates/
+content-plan.json

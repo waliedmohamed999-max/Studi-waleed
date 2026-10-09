@@ -32,6 +32,11 @@ export const MODELS = {
     model: "lipsync-2", // lipsync-2-pro أدق في التفاصيل بس أغلى 1.67 مرة
     pricePerSecond: 0.05, // ~3$ للدقيقة
   },
+  // شيل الخلفية من الفيديو (VEED على fal.ai): بيطلع WebM شفاف
+  cutout: {
+    endpoint: "veed/video-background-removal/fast",
+    pricePerSecond: 0.012, // $0.012 لكل 30 فريم مع تنعيم الأطراف (يعني ثانية على 30fps)
+  },
   // المدة اللي موديلات الفيديو بتقبلها (ثواني صحيحة)
   clipSeconds: { min: 3, max: 15 },
   voice: {

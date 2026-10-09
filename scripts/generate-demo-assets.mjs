@@ -1,6 +1,7 @@
 // بيولّد ملفات تجربة في public/demo: مزيكا، مؤثرات صوت، صور، ولوجو
 // كلها متولدة بالكود، فمفيش أي مشكلة حقوق ملكية
 // التشغيل: node scripts/generate-demo-assets.mjs
+// أو ملفات معينة بس: node scripts/generate-demo-assets.mjs glitch.wav impact.wav
 import fs from "node:fs";
 import path from "node:path";
 
@@ -8,9 +9,12 @@ const dir = path.resolve("public/demo");
 fs.mkdirSync(dir, { recursive: true });
 
 const RATE = 44100;
+const only = process.argv.slice(2);
+const want = (name) => !only.length || only.includes(name);
 
 // ===== كتابة ملف WAV (مونو 16 بت) =====
 const writeWav = (name, samples) => {
+  if (!want(name)) return;
   const data = Buffer.alloc(samples.length * 2);
   samples.forEach((s, i) => data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, s)) * 32767), i * 2));
   const header = Buffer.alloc(44);
@@ -109,6 +113,45 @@ const note = (n) => 440 * Math.pow(2, (n - 69) / 12); // رقم MIDI ← ترد�
   writeWav("ding.wav", out);
 }
 
+// ===== glitch: تشويش رقمي متقطع (لانتقال الجليتش) =====
+{
+  const len = 0.45;
+  const out = new Float32Array(RATE * len);
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647), (seed / 2147483647) * 2 - 1);
+  let hold = 0;
+  let held = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / RATE;
+    // "Bitcrush": العينة بتتمسك فترة عشوائية، وبتقطع وترجع
+    if (hold-- <= 0) {
+      hold = 20 + Math.floor((rnd() + 1) * 120);
+      held = rnd();
+    }
+    const gate = Math.sin(t * 2 * Math.PI * 18) > -0.2 ? 1 : 0;
+    const buzz = Math.sign(Math.sin(2 * Math.PI * (120 + 600 * t) * t)) * 0.3;
+    out[i] = (held * 0.6 + buzz) * gate * Math.min(1, t / 0.01) * Math.exp(-t * 3) * 0.7;
+  }
+  writeWav("glitch.wav", out);
+}
+
+// ===== impact: ضربة مع صفير خفيف (للفلاش) =====
+{
+  const len = 1.1;
+  const out = new Float32Array(RATE * len);
+  let lp = 0;
+  let seed = 5;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647), (seed / 2147483647) * 2 - 1);
+  for (let i = 0; i < out.length; i++) {
+    const t = i / RATE;
+    const boom = Math.sin(2 * Math.PI * (40 + 120 * Math.exp(-t * 18)) * t) * Math.exp(-t * 5);
+    lp += 0.08 * (rnd() - lp);
+    const air = lp * Math.exp(-t * 9) * 1.5;
+    out[i] = (boom * 0.9 + air) * 0.8;
+  }
+  writeWav("impact.wav", out);
+}
+
 // ===== صور تجربة (SVG) =====
 const foodSvg = (emoji, c1, c2, c3) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1350" preserveAspectRatio="xMidYMid slice">
   <defs>
@@ -136,6 +179,7 @@ const images = {
 </svg>`,
 };
 for (const [name, svg] of Object.entries(images)) {
+  if (!want(name)) continue;
   fs.writeFileSync(path.join(dir, name), svg);
   console.log("✓", name);
 }

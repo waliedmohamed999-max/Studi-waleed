@@ -8,6 +8,7 @@ import { flip } from "@remotion/transitions/flip";
 import { clockWipe } from "@remotion/transitions/clock-wipe";
 import { iris } from "@remotion/transitions/iris";
 import { pushCut } from "@remotion/transitions/push-cut";
+import { custom } from "./customTransitions";
 
 // طول الانتقال بالفريمات (نص ثانية على 30 فريم)
 export const TRANSITION_FRAMES = 15;
@@ -25,6 +26,11 @@ export const transitions = {
   clockWipe: "عقارب الساعة",
   iris: "دايرة بتكبر",
   pushCut: "زووم بفلاش",
+  zoom: "زووم بلور",
+  glitch: "جليتش",
+  whip: "سحبة سريعة (Whip)",
+  flash: "فلاش أبيض",
+  spin: "لفة",
   none: "قطع مباشر (من غير انتقال)",
 } as const;
 
@@ -53,10 +59,19 @@ export const getTransition = (
       return iris({ width, height });
     case "pushCut":
       return pushCut();
+    case "zoom":
+    case "glitch":
+    case "whip":
+    case "flash":
+    case "spin":
+      return custom(key as "zoom");
     default:
       return null;
   }
 };
+
+// صوت كل انتقال (الجليتش والفلاش ليهم صوت خاص، والباقي "ووش")
+export const transitionSound = (key: string) => (key === "glitch" ? "demo/glitch.wav" : key === "flash" || key === "pushCut" ? "demo/impact.wav" : "demo/whoosh.wav");
 
 // حساب طول الفيديو: كل انتقال بيدخّل المشهدين في بعض فبيقصّر الطول الكلي
 export const totalDuration = (scenes: number, sceneFrames: number, transitionKey: string) => {

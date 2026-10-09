@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { createTikTokStyleCaptions, parseSrt, serializeSrt, type Caption } from "@remotion/captions";
 import { callAi, dialects, useAiStatus, type AiScript, type Dialect } from "./ai";
 import { KeyHint, useKeysVersion } from "./settings";
+import { EmojiTool } from "./EmojiTool";
+import type { EmojiItem } from "../src/lib/emoji";
 import { CleanAudio } from "./CleanAudio";
 
 // ===== Claude بيكتب سكريبت التعليق الصوتي =====
@@ -400,6 +402,12 @@ export const CaptionsPanel: React.FC<{
             </button>
           </div>
         </div>
+      )}
+      {captions.length > 0 && (
+        <details className="subpanel">
+          <summary>😀 إيموجي على الكلمات المهمة ({((props.emojis as EmojiItem[]) ?? []).length})</summary>
+          <EmojiTool words={captions} items={(props.emojis as EmojiItem[]) ?? []} onChange={(emojis) => updateProps({ emojis })} onSeek={(ms) => seek(Math.round((ms / 1000) * fps))} />
+        </details>
       )}
     </div>
   );
