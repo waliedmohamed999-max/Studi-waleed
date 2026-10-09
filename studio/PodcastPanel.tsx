@@ -1,5 +1,5 @@
 // لوحة "البودكاست بكذا كاميرا": الكاميرات ← زامن وقطّع ← نضّف الصوت ← كابشن ← مقاطع ريلز
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Caption } from "@remotion/captions";
 import { uid } from "../src/scenes/defs";
 import { podcastShots, podcastWindow, type PodcastCam, type PodcastProps } from "../src/PodcastVideo";
@@ -10,6 +10,7 @@ import { sendToQueue, type ExportSettings } from "./ExportCard";
 import { useAiStatus } from "./ai";
 import { runJob } from "./jobs";
 import { KeyHint } from "./settings";
+import { trackMouth } from "./mouthTrack";
 
 type Props = Record<string, unknown>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -47,7 +48,9 @@ export const PodcastPanel: React.FC<{
   const camsChanged = (patch: Partial<PodcastProps>) => update({ ...patch, offsets: [], range: null, shots: [], analysis: null, clip: null });
 
   // ===== التحليل =====
-  const analyze = async () => {
+  // useMouth: حدد المتكلم من حركة الشفايف (بيتبعت لو اتعمل تتبع قبل كده)
+  const analyze = async (mouthOverride?: (number | null)[][] | null) => {
+    const mouth = mouthOverride === undefined ? (p.speakerBy === "mouth" && (p.mouth ?? []).length ? p.mouth : undefined) : mouthOverride ?? undefined;
     setError(null);
     setBusy("بيبدأ…");
     try {
@@ -59,6 +62,8 @@ export const PodcastPanel: React.FC<{
         shots: PodcastProps["shots"];
         share: { cam: number; percent: number }[];
         separationDb: number;
+        mode: string;
+        visualConfidence: number;
       }>(
         "/api/podcast/analyze",
         {
@@ -66,15 +71,48 @@ export const PodcastPanel: React.FC<{
           audioFile: p.audioFrom === "file" ? p.audioFile : undefined,
           minShotMs: (p.minShotSec || 2) * 1000,
           split: p.splitOnBoth === "on",
+          mouth,
         },
         setBusy,
       );
-      update({ offsets: r.offsets, audioOffset: r.audioOffset, range: r.range, shots: r.shots, clip: null, analysis: { syncScores: r.syncScores, share: r.share, separationDb: r.separationDb } });
+      update({
+        offsets: r.offsets,
+        audioOffset: r.audioOffset,
+        range: r.range,
+        shots: r.shots,
+        clip: null,
+        analysis: { syncScores: r.syncScores, share: r.share, separationDb: r.separationDb, mode: r.mode, visualConfidence: r.visualConfidence },
+      });
       seek(0);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(null);
+    }
+  };
+
+  // ===== حركة الشفايف (لما المايك مشترك) =====
+  const stopMouth = useRef(false);
+  const [mouthBusy, setMouthBusy] = useState<string | null>(null);
+  const runMouth = async () => {
+    setError(null);
+    stopMouth.current = false;
+    try {
+      const mouth: (number | null)[][] = p.cams.map(() => []);
+      const speakers = p.cams.map((c, i) => ({ c, i })).filter((x) => x.c.role !== "wide" && x.c.src);
+      for (const [k, { c, i }] of speakers.entries()) {
+        setMouthBusy(`${camName(c, i)} (${k + 1} من ${speakers.length})… 0٪`);
+        mouth[i] = await trackMouth(c.src, (pr) => setMouthBusy(`${camName(c, i)} (${k + 1} من ${speakers.length})… ${Math.round(pr * 100)}٪`), stopMouth);
+        if (!mouth[i].some((v) => v !== null)) throw new Error(`مفيش وش واضح في ${camName(c, i)}`);
+      }
+      update({ mouth, speakerBy: "mouth" });
+      setMouthBusy(null);
+      await analyze(mouth);
+    } catch (e) {
+      const m = (e as Error).message;
+      if (m !== "اتلغى") setError(/fetch|network|Failed/i.test(m) ? "تحميل موديل الوش فشل، اتأكد من النت" : m);
+    } finally {
+      setMouthBusy(null);
     }
   };
 
@@ -225,7 +263,7 @@ export const PodcastPanel: React.FC<{
             <span>شاشة مقسومة لما الاتنين يتكلموا</span>
           </label>
         </div>
-        <button type="button" className="btn-primary" onClick={analyze} disabled={!ready || !!busy}>
+        <button type="button" className="btn-primary" onClick={() => analyze()} disabled={!ready || !!busy || !!mouthBusy}>
           {p.shots.length ? "🔄 زامن وقطّع تاني" : "🎬 زامن وقطّع أوتوماتيك"}
         </button>
         {!ready && <div className="hint">ضيف فيديو لكاميرتين على الأقل.</div>}
@@ -255,13 +293,43 @@ export const PodcastPanel: React.FC<{
                   {(p.offsets[k + 1] / 1000).toFixed(2)} ث)
                 </li>
               ))}
-              <li className={p.analysis.separationDb >= 6 ? "ok" : "warn"}>
-                <span aria-hidden="true">{p.analysis.separationDb >= 6 ? "✓" : "!"}</span>
-                {p.analysis.separationDb >= 6
-                  ? "تحديد المتكلم واضح"
-                  : "صوت الكاميرات قريب من بعض، فتحديد المتكلم ممكن يغلط. لو كل واحد عنده مايك ضيفه، أو صلّح اللقطات من التايملاين"}
-              </li>
+              {p.analysis.mode === "visual" ? (
+                <li className={(p.analysis.visualConfidence ?? 0) >= 0.6 ? "ok" : "warn"}>
+                  <span aria-hidden="true">{(p.analysis.visualConfidence ?? 0) >= 0.6 ? "✓" : "!"}</span>
+                  المتكلم اتحدد من حركة الشفايف ({Math.round((p.analysis.visualConfidence ?? 0) * 100)}٪ من الكلام اتعرف صاحبه بوضوح)
+                </li>
+              ) : (
+                <li className={p.analysis.separationDb >= 6 ? "ok" : "warn"}>
+                  <span aria-hidden="true">{p.analysis.separationDb >= 6 ? "✓" : "!"}</span>
+                  {p.analysis.separationDb >= 6 ? "تحديد المتكلم واضح من الصوت" : "صوت الكاميرات شبه بعض (غالبًا مايك واحد مشترك)، فالصوت لوحده مش هيعرف مين بيتكلم"}
+                </li>
+              )}
             </ul>
+            {(p.analysis.separationDb < 6 || p.analysis.mode === "visual") && (
+              <div className="pod-mouth">
+                <b>👄 حدد المتكلم من حركة الشفايف</b>
+                <div className="hint">الاستوديو بيتفرج على وش كل متكلم في الكاميرا بتاعته، واللي بقه بيتحرك وقت الكلام هو اللي بيتكلم. بيشتغل على جهازك ومجاني، وبياخد وقت (حوالي ربع مدة الفيديو لكل كاميرا).</div>
+                {mouthBusy ? (
+                  <div className="brand-buttons">
+                    <span className="job-status">⏳ {mouthBusy}</span>
+                    <button type="button" className="btn-small" onClick={() => (stopMouth.current = true)}>
+                      وقّف
+                    </button>
+                  </div>
+                ) : (
+                  <div className="brand-buttons">
+                    <button type="button" className="btn-small btn-ai" onClick={runMouth} disabled={!!busy}>
+                      {(p.mouth ?? []).length ? "تتبع الشفايف تاني" : "👄 ابدأ"}
+                    </button>
+                    {p.analysis.mode === "visual" && (
+                      <button type="button" className="link-btn" onClick={() => (update({ speakerBy: "audio" }), analyze(null))}>
+                        رجّع للتحديد بالصوت
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="hint">تقدر تغيّر كاميرا أي لقطة: اختارها من التايملاين ودوس 1 أو 2 أو 3، أو اقطع لقطة لاتنين بـ S.</div>
           </div>
         )}

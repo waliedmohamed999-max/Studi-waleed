@@ -9,6 +9,7 @@ import { assetSrc, musicVolume } from "./lib/media";
 import type { Scene } from "./scenes/defs";
 import { sceneRenderers, type Theme } from "./scenes/renderers";
 import { LayersView } from "./scenes/layers";
+import { SoundFxLayer, type SoundFxItem } from "./lib/soundFx";
 
 export type ProjectProps = {
   format: string;
@@ -26,6 +27,7 @@ export type ProjectProps = {
   textColor: string;
   accent: string;
   scenes: Scene[];
+  soundFx: SoundFxItem[];
 };
 
 const FPS = 30;
@@ -98,6 +100,7 @@ export const ProjectVideo: React.FC<ProjectProps> = (p) => {
       </TransitionSeries>
 
       {/* ===== الصوت ===== */}
+      <SoundFxLayer items={p.soundFx ?? []} />
       {p.voiceover && <Html5Audio src={assetSrc(p.voiceover)} volume={Math.max(0, Math.min(100, p.voiceVolume ?? 100)) / 100} />}
       {p.music && (
         <Html5Audio

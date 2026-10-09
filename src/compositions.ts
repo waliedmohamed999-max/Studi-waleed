@@ -124,6 +124,7 @@ const projectDefaults: ProjectProps = {
     newScene("quote", { id: "s5", quote: "الفكرة الحلوة محتاجة فيديو حلو", author: "صاحبك", duration: 3.5 }),
     newScene("cta", { id: "s6", text: "ابدأ دلوقتي", sub: "استوديو منتاج", duration: 3 }),
   ],
+  soundFx: [],
 };
 
 const captionedDefaults: CaptionedProps = {
@@ -150,6 +151,8 @@ const captionedDefaults: CaptionedProps = {
   grade: "none",
   emojis: [],
   showEmojis: "on",
+  soundFx: [],
+  duckMusic: "on",
 };
 
 const captionStyles = [
@@ -202,6 +205,7 @@ const filmDefaults: FilmProps = {
   jobs: [],
   auto: false,
   autoBatch: "",
+  soundFx: [],
 };
 
 const autoEditDefaults: AutoEditProps = {
@@ -251,6 +255,8 @@ const autoEditDefaults: AutoEditProps = {
   dubLang: "",
   dubVideo: "",
   useDub: "off",
+  soundFx: [],
+  duckMusic: "on",
 };
 
 const podcastDefaults: PodcastProps = {
@@ -288,6 +294,10 @@ const podcastDefaults: PodcastProps = {
   analysis: null,
   minShotSec: 2,
   splitOnBoth: "off",
+  soundFx: [],
+  duckMusic: "on",
+  mouth: [],
+  speakerBy: "audio",
 };
 
 export const videos: VideoDef[] = [
@@ -342,6 +352,7 @@ export const videos: VideoDef[] = [
       { key: "mediaVolume", label: "صوت الفيديو", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
       { key: "music", label: "مزيكا خلفية", type: "audio", group: "الصوت" },
       { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
+      { key: "duckMusic", label: "المزيكا توطى وقت الكلام", type: "select", options: onOff, group: "الصوت" },
     ],
   },
   {
@@ -380,6 +391,7 @@ export const videos: VideoDef[] = [
       { key: "audioVolume", label: "صوت الكلام", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
       { key: "music", label: "مزيكا خلفية", type: "audio", group: "الصوت" },
       { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "الصوت" },
+      { key: "duckMusic", label: "المزيكا توطى وقت الكلام", type: "select", options: onOff, group: "الصوت" },
     ],
   },
   {
@@ -484,6 +496,7 @@ export const videos: VideoDef[] = [
       { key: "bgTo", label: "لون الخلفية التاني", type: "color", group: "الشكل" },
       { key: "music", label: "مزيكا خلفية", type: "audio", group: "المزيكا" },
       { key: "musicVolume", label: "صوت المزيكا", type: "number", min: 0, max: 100, step: 5, suffix: "٪", group: "المزيكا" },
+      { key: "duckMusic", label: "المزيكا توطى وقت الكلام", type: "select", options: onOff, group: "المزيكا" },
     ],
   },
   {

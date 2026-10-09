@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { analyzePodcast, buildShots } from "../scripts/podcast.mjs";
+import { analyzePodcast, buildShots, visualSpeakers } from "../scripts/podcast.mjs";
 
 const R = 16000;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "montag-pod-"));
@@ -90,6 +90,35 @@ describe("البودكاست", () => {
     const c2 = wav(path.join(dir, "r2.wav"), mix(B2, A2).subarray(Math.round(2.4 * R)));
     const r = await analyzePodcast({ cams: [{ file: c1, role: "speaker" }, { file: c2, role: "speaker" }] });
     expect(Math.abs(r.offsets[1] - -2400)).toBeLessThanOrEqual(30);
+  });
+
+  it("مايك واحد مشترك: من الصوت لوحده مش هيعرف، ومن حركة الشفايف يعرف", async () => {
+    // الكاميرتين بيسجلوا نفس الصوت بالظبط (مايك واحد)، والتانية متأخرة 0.8 ثانية
+    const shared = A.map((v, i) => v + B[i] + rnd() * 0.002);
+    const s1 = wav(path.join(dir, "s1.wav"), shared);
+    const s2 = wav(path.join(dir, "s2.wav"), shared.subarray(Math.round(0.8 * R)));
+    const cams = [{ file: s1, role: "speaker" }, { file: s2, role: "speaker" }];
+    const audioOnly = await analyzePodcast({ cams });
+    expect(audioOnly.separationDb).toBeLessThan(3); // الصوت مش بيفرّق
+    // حركة البق (كل 100ms بوقت كل كاميرا): بيتحرك وقت كلام صاحبه بس
+    const talking = (segs, t) => segs.some(([a, b]) => t >= a && t < b);
+    const mouthFor = (segs, lateSec) => Array.from({ length: 240 }, (_, k) => {
+      const t = k / 10 + lateSec;
+      return talking(segs, t) ? 0.3 + Math.abs(rnd()) * 0.4 : Math.abs(rnd()) * 0.03;
+    });
+    const r = await analyzePodcast({ cams, mouth: [mouthFor([[0.5, 5], [10, 14.5], [20, 22]], 0), mouthFor([[5.6, 9.5], [15, 19.5], [20.5, 22]], 0.8)] });
+    expect(r.mode).toBe("visual");
+    expect(Math.abs(r.offsets[1] - -800)).toBeLessThanOrEqual(30);
+    const camAt = (sec) => r.shots.find((s) => sec * 1000 >= s.fromMs && sec * 1000 < s.toMs)?.cam;
+    expect(camAt(3)).toBe(0);
+    expect(camAt(7.5)).toBe(1);
+    expect(camAt(12)).toBe(0);
+    expect(camAt(17)).toBe(1);
+  });
+
+  it("حركة الشفايف: الوش اللي مش باين أو مفيش كلام", () => {
+    const { frames } = visualSpeakers([false, true, true, true], [[0.5, 0.5, NaN, 0.01], [0.5, 0.05, 0.6, 0.02]]);
+    expect(Array.from(frames)).toEqual([-1, 0, 1, -3]);
   });
 
   it("الكلام بتاع الاتنين مع بعض: شاشة مقسومة لو مطلوب", () => {

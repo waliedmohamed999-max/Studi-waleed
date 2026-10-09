@@ -11,8 +11,9 @@ import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath }
 import { AiError, aiStatus, analyzeTalk, contentPlan, generateVideo, improveScene, pickEmojis, planFilm, reviewVideo, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
 import { dubLanguages, dubMedia, joinClips, MediaError } from "./scripts/media.mjs";
 import { analyzePodcast, PodcastError } from "./scripts/podcast.mjs";
-import { bundle } from "@remotion/bundler";
+import { analyzeAudio, importFreesound, searchFreesound, SoundLibError } from "./scripts/soundlib.mjs";
 import { renderStill, selectComposition } from "@remotion/renderer";
+import { createPerf, getBundle } from "./scripts/perf.mjs";
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
@@ -32,7 +33,8 @@ const envFile = process.env.MONTAG_ENV_FILE || path.join(root, ".env");
 try {
   process.loadEnvFile(envFile);
 } catch {}
-const outDir = path.join(root, "out");
+// MONTAG_OUT_DIR للاختبارات بس (عشان التصدير التجريبي ميتحطش مع فيديوهاتك)
+const outDir = process.env.MONTAG_OUT_DIR || path.join(root, "out");
 const publicDir = path.join(root, "public");
 const uploadsDir = path.join(publicDir, "uploads");
 // بيانات شغلك (المشاريع، البراند، المكتبة، القوالب، الخطة). MONTAG_DATA_DIR للاختبارات بس
@@ -136,22 +138,76 @@ const readLibrary = () => {
 };
 
 // قايمة الملفات المتاحة (اللي رفعتها + ملفات التجربة)
+// باقة أصوات البداية (public/library) ومعاها manifest.json فيه الأسماء والتصنيفات
+// ملفات التجربة القديمة (demo) ليها معلومات ثابتة
+const demoLicense = "منتاج (متولد بالكود، مجاني لأي استخدام)";
+const demoMeta = {
+  "demo/music.wav": { label: "مزيكا التجربة", soundKind: "music", mood: "حماسي", bpm: 120, license: demoLicense },
+  "demo/whoosh.wav": { label: "ووش", soundKind: "sfx", category: "انتقالات", license: demoLicense },
+  "demo/pop.wav": { label: "بوب", soundKind: "sfx", category: "واجهة", license: demoLicense },
+  "demo/ding.wav": { label: "دينج", soundKind: "sfx", category: "واجهة", license: demoLicense },
+  "demo/glitch.wav": { label: "جليتش", soundKind: "sfx", category: "انتقالات", license: demoLicense },
+  "demo/impact.wav": { label: "ضربة وفلاش", soundKind: "sfx", category: "ضربات", license: demoLicense },
+  "demo/voice-demo.wav": { label: "تعليق تجربة", soundKind: "voice" },
+};
+const packMeta = () => {
+  try {
+    return { ...demoMeta, ...Object.fromEntries(JSON.parse(fs.readFileSync(path.join(publicDir, "library", "manifest.json"), "utf8")).map((x) => [x.path, x])) };
+  } catch {
+    return demoMeta;
+  }
+};
+
+// معلومات الصوت: الاسم، الفولدر، مزيكا ولا مؤثر، المود/التصنيف، الترخيص، المصدر
+const soundFields = ["label", "group", "soundKind", "mood", "category", "license", "source", "credit", "bpm", "duration", "energy"];
 const listAssets = () => {
-  const meta = readLibrary();
+  const meta = { ...packMeta(), ...readLibrary() };
   const list = [];
-  for (const folder of ["uploads", "demo"]) {
-    const dir = path.join(publicDir, folder);
+  for (const [folder, sub] of [["uploads", ""], ["demo", ""], ["library", "sfx"], ["library", "music"]]) {
+    const dir = path.join(publicDir, folder, sub);
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
       const kind = kindOf(f);
       if (!kind) continue;
-      const p = `${folder}/${f}`;
+      const p = [folder, sub, f].filter(Boolean).join("/");
       const st = fs.statSync(path.join(dir, f));
-      list.push({ path: p, name: f, kind, folder, time: st.mtimeMs, size: st.size, label: meta[p]?.label ?? "", group: meta[p]?.group ?? "" });
+      const m = meta[p] ?? {};
+      list.push({
+        path: p,
+        name: f,
+        kind,
+        folder,
+        time: st.mtimeMs,
+        size: st.size,
+        label: m.label ?? "",
+        group: m.group ?? "",
+        // معلومات الصوت (المكتبة بتستخدمها)
+        soundKind: m.soundKind ?? m.kind ?? "",
+        mood: m.mood ?? "",
+        category: m.category ?? "",
+        license: m.license ?? "",
+        source: m.source ?? "",
+        credit: m.credit ?? "",
+        bpm: Number(m.bpm) || 0,
+        duration: Number(m.duration) || 0,
+      });
     }
   }
-  list.sort((a, b) => (a.folder === b.folder ? b.time - a.time : a.folder === "uploads" ? -1 : 1));
+  const order = { uploads: 0, library: 1, demo: 2 };
+  list.sort((a, b) => (a.folder === b.folder ? b.time - a.time : order[a.folder] - order[b.folder]));
   return list;
+};
+
+const saveMeta = (p, patch) => {
+  const meta = readLibrary();
+  const cur = meta[p] ?? {};
+  const next = { ...cur };
+  for (const k of soundFields) {
+    if (patch[k] === undefined) continue;
+    next[k] = typeof patch[k] === "number" ? patch[k] : String(patch[k]).slice(0, k === "source" ? 300 : 80);
+  }
+  meta[p] = next;
+  fs.writeFileSync(libraryFile, JSON.stringify(meta, null, 2));
 };
 app.get("/api/assets", (_req, res) => res.json(listAssets()));
 
@@ -175,9 +231,7 @@ app.post("/api/settings/test/:id", async (req, res) => res.json(await keyStore.t
 app.put("/api/library/meta", (req, res) => {
   const p = String(req.body?.path ?? "");
   if (!publicPath(p)) return res.status(404).json({ error: "الملف مش موجود" });
-  const meta = readLibrary();
-  meta[p] = { label: String(req.body?.label ?? meta[p]?.label ?? "").slice(0, 80), group: String(req.body?.group ?? meta[p]?.group ?? "").slice(0, 40) };
-  fs.writeFileSync(libraryFile, JSON.stringify(meta, null, 2));
+  saveMeta(p, req.body ?? {});
   res.json({ ok: true });
 });
 // مسح ملف من المكتبة (الملفات اللي انت رفعتها بس، مش ملفات التجربة)
@@ -700,6 +754,8 @@ app.post("/api/podcast/analyze", (req, res) => {
         audioFile: audioFile ?? undefined,
         minShotMs: Math.min(8000, Math.max(800, Number(b.minShotMs) || 2000)),
         split: !!b.split,
+        // حركة الشفايف (لما المايك مشترك): رقم لكل 100ms، و null لما الوش مش باين
+        mouth: Array.isArray(b.mouth) ? b.mouth.slice(0, 6).map((m) => (Array.isArray(m) ? m.slice(0, 200000).map((v) => (v === null || v === undefined ? null : Number(v))) : null)) : undefined,
         onProgress: step,
       });
     } catch (e) {
@@ -740,41 +796,14 @@ app.post("/api/autoedit/dub-lips", (req, res) => {
 });
 
 // ===== مراجعة قبل التصدير: لقطات من الفيديو ← Claude =====
-// الـ bundle بيتعمل مرة ويتعاد بس لو ملفاتك اتغيرت
-// (على الويندوز Remotion بينسخ فولدر public جوه الـ bundle، فالملف اللي اترفع بعده مش بيبان غير في bundle جديد)
-let reviewBundle = null;
-let reviewBundleSig = "";
-const publicSignature = () => {
-  let n = 0;
-  let newest = 0;
-  const walk = (d) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const f = path.join(d, e.name);
-      if (e.isDirectory()) walk(f);
-      else {
-        n++;
-        newest = Math.max(newest, fs.statSync(f).mtimeMs);
-      }
-    }
-  };
-  walk(publicDir);
-  return `${n}:${newest}`;
-};
+// (الـ bundle مشترك مع التصدير، وبيتعاد بس لو ملفاتك اتغيرت: شوف scripts/perf.mjs)
 app.post("/api/ai/review", (req, res) => {
   if (!aiStatus().available) return res.status(400).json({ error: "حط مفتاح Claude من ⚙️ الإعدادات" });
   const { videoId, props, info } = req.body ?? {};
   if (!videoIdOk(videoId) || !props || typeof props !== "object") return res.status(400).json({ error: "بيانات الفيديو مش صحيحة" });
   startFilmJob(res, async (step) => {
     step("بيجهز الفيديو");
-    const sig = publicSignature();
-    if (!reviewBundle || sig !== reviewBundleSig) {
-      reviewBundleSig = sig;
-      reviewBundle = bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
-    }
-    const serveUrl = await reviewBundle.catch((e) => {
-      reviewBundle = null;
-      throw e;
-    });
+    const serveUrl = await getBundle({ root, publicDir });
     const composition = await selectComposition({ serveUrl, id: videoId, inputProps: props });
     const n = 6;
     // أول لقطة بعد 0.8 ثانية (البداية اللي الناس بتشوفها)، والباقي متوزع بالتساوي لحد الآخر
@@ -798,6 +827,69 @@ app.post("/api/ai/review", (req, res) => {
       info: { ...(info && typeof info === "object" ? info : {}), width: composition.width, height: composition.height, seconds: Math.round(composition.durationInFrames / composition.fps), frames: frames.map((f) => `${(f / composition.fps).toFixed(1)}s`) },
     });
     return { ...r, frames: frames.map((f) => f / composition.fps) };
+  });
+});
+
+// ===== مكتبة المزيكا والمؤثرات =====
+// تحليل ملف صوت (المدة والسرعة والمود) وحفظ النتيجة في المكتبة (من غير ما نغير اللي انت كاتبه بإيدك)
+app.post("/api/sound/analyze", async (req, res) => {
+  const p = String(req.body?.path ?? "");
+  const file = publicPath(p);
+  if (!file) return res.status(404).json({ error: "الملف مش موجود" });
+  try {
+    const a = await analyzeAudio(file, String(req.body?.name ?? ""));
+    const cur = readLibrary()[p] ?? {};
+    saveMeta(p, {
+      soundKind: cur.soundKind || a.kind,
+      mood: cur.mood || a.mood || "",
+      category: cur.category || a.category || "",
+      bpm: a.bpm,
+      duration: Math.round(a.duration * 10) / 10,
+      energy: a.energy,
+      ...(req.body?.license ? { license: req.body.license } : {}),
+      ...(req.body?.source ? { source: req.body.source } : {}),
+      ...(req.body?.credit ? { credit: req.body.credit } : {}),
+      ...(req.body?.group ? { group: req.body.group } : {}),
+    });
+    res.json(a);
+  } catch (e) {
+    res.status(500).json({ error: `تحليل الصوت فشل: ${String(e?.message ?? e).slice(0, 200)}` });
+  }
+});
+
+app.get("/api/sound/freesound", async (req, res) => {
+  try {
+    res.json(await searchFreesound({ query: String(req.query.q ?? ""), kind: req.query.kind === "music" ? "music" : "sfx", page: Number(req.query.page) || 1 }));
+  } catch (e) {
+    res.status(e instanceof SoundLibError ? 400 : 500).json({ error: e instanceof SoundLibError ? e.message : "البحث فشل" });
+  }
+});
+
+app.post("/api/sound/freesound/import", (req, res) => {
+  const kind = req.body?.kind === "music" ? "music" : "sfx";
+  startFilmJob(res, async (step) => {
+    try {
+      step("بينزّل الصوت من Freesound");
+      const r = await importFreesound({ id: req.body?.id, uploadsDir });
+      step("بيحلل الصوت");
+      const a = await analyzeAudio(publicPath(r.path), `${r.name} ${r.tags.join(" ")}`);
+      saveMeta(r.path, {
+        label: r.name.replace(/\.[a-z0-9]{2,4}$/i, "").slice(0, 80),
+        group: "Freesound",
+        soundKind: kind,
+        mood: kind === "music" ? a.mood ?? "" : "",
+        category: kind === "sfx" ? a.category ?? "" : "",
+        license: "CC0 (Freesound): مجاني لأي استخدام",
+        source: r.url,
+        credit: r.author,
+        bpm: a.bpm,
+        duration: Math.round(a.duration * 10) / 10,
+        energy: a.energy,
+      });
+      return { path: r.path };
+    } catch (e) {
+      throw e instanceof SoundLibError ? new FilmError(e.message) : e;
+    }
   });
 });
 
@@ -832,7 +924,12 @@ app.put("/api/brand", (req, res) => {
 });
 
 // ===== طابور التصدير (فيديو واحد أو دفعة من شيت) =====
-const queue = createQueue({ root, publicDir, outDir });
+// ===== سرعة التصدير =====
+const perf = createPerf({ dataDir });
+app.get("/api/perf", (_req, res) => res.json(perf.settings()));
+app.post("/api/perf/benchmark", (_req, res) => startFilmJob(res, (step) => perf.benchmark({ root, publicDir, onProgress: step })));
+
+const queue = createQueue({ root, publicDir, outDir, perf });
 const videoIdOk = (id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id);
 
 app.post("/api/queue", (req, res) => {

@@ -1,5 +1,6 @@
 // أنواع بيانات "مخرج الأفلام" (المرحلة 7): شخصيات، لقطات، صور مرفوعة، وصوت
 import type { Caption } from "@remotion/captions";
+import type { SoundFxItem } from "../lib/soundFx";
 
 export type FilmCharacter = {
   id: string;
@@ -86,6 +87,7 @@ export type FilmProps = {
   jobs: FilmJob[];
   auto: boolean; // "اعمل كل حاجة" شغال (بيكمل حتى لو الصفحة اتقفلت واتفتحت)
   autoBatch: string; // رقم دفعة التصدير لما الوضع الأوتوماتيك يخلص
+  soundFx: SoundFxItem[]; // مؤثرات صوتية إضافية في لحظات معينة
 };
 
 export const emptyShot = (id: string): FilmShot => ({

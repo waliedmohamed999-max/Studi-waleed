@@ -2,6 +2,63 @@
 // المفاتيح بتتحفظ على جهازك في ملف .env، والمتصفح عمره ما بيشوف المفتاح كامل (آخر 4 حروف بس)
 import { useEffect, useState } from "react";
 import { keysChanged } from "./settings";
+import { runJob } from "./jobs";
+
+type Perf = { cpus: number; concurrency: number; tested: boolean; results: { concurrency: number; ms: number }[] };
+
+// ===== سرعة التصدير: اختبار بيختار أنسب إعداد لجهازك =====
+const PerfSection: React.FC = () => {
+  const [perf, setPerf] = useState<Perf | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/perf")
+      .then((r) => r.json())
+      .then(setPerf)
+      .catch(() => {});
+  }, []);
+  const test = async () => {
+    setError(null);
+    setBusy("بيبدأ… (حوالي دقيقة)");
+    try {
+      setPerf(await runJob<Perf>("/api/perf/benchmark", {}, setBusy));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  if (!perf) return null;
+  const best = perf.results.length ? Math.min(...perf.results.map((r) => r.ms)) : 0;
+  return (
+    <section className="key-row">
+      <div className="key-head">
+        <b>⚡ سرعة التصدير</b>
+        <span className={`key-state ${perf.tested ? "on" : "off"}`}>{perf.tested ? "متظبطة على جهازك" : "الإعداد العام"}</span>
+      </div>
+      <div className="key-use">
+        جهازك فيه {perf.cpus} نواة، والتصدير بيرسم {perf.concurrency} صفحات مع بعض. الاختبار بيجرّب كذا إعداد ويختار الأسرع لجهازك انت (بياخد حوالي دقيقة).
+      </div>
+      {perf.results.length > 0 && (
+        <ul className="checks">
+          {perf.results.map((r) => (
+            <li key={r.concurrency} className={r.ms === best ? "ok" : ""}>
+              <span aria-hidden="true">{r.ms === best ? "✓" : "·"}</span>
+              {r.concurrency} مع بعض: {(r.ms / 1000).toFixed(1)} ثانية
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="key-actions">
+        <button type="button" className="btn-small btn-ai" onClick={test} disabled={!!busy}>
+          {busy ? `⏳ ${busy}` : "اختبر سرعة جهازك"}
+        </button>
+      </div>
+      <div className="hint">للسرعة الكبيرة جدًا (فيديوهات كتير أو طويلة): كارت شاشة NVIDIA، أو التصدير السحابي (Remotion Lambda).</div>
+      {error && <div className="error">{error}</div>}
+    </section>
+  );
+};
 
 type Key = { id: string; name: string; use: string; url: string; set: boolean; masked: string };
 type State = { keys: Key[]; mock: boolean };
@@ -158,6 +215,8 @@ export const SettingsTool: React.FC = () => {
           </span>
         </label>
       </section>
+
+      <PerfSection />
 
       {error && <div className="error">{error}</div>}
     </div>

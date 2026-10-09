@@ -1,0 +1,181 @@
+[
+  {
+    "path": "library/sfx/swoosh-fast.m4a",
+    "kind": "sfx",
+    "duration": 0.45,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "سووش سريع",
+    "category": "انتقالات"
+  },
+  {
+    "path": "library/sfx/swoosh-reverse.m4a",
+    "kind": "sfx",
+    "duration": 0.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "سووش بالعكس (قبل الظهور)",
+    "category": "انتقالات"
+  },
+  {
+    "path": "library/sfx/riser.m4a",
+    "kind": "sfx",
+    "duration": 2.2,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "رايزر (تصاعد قبل حاجة مهمة)",
+    "category": "انتقالات"
+  },
+  {
+    "path": "library/sfx/downlifter.m4a",
+    "kind": "sfx",
+    "duration": 1.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "داون ليفتر (نزول)",
+    "category": "انتقالات"
+  },
+  {
+    "path": "library/sfx/hit-cinematic.m4a",
+    "kind": "sfx",
+    "duration": 1.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "ضربة سينمائية",
+    "category": "ضربات"
+  },
+  {
+    "path": "library/sfx/sub-boom.m4a",
+    "kind": "sfx",
+    "duration": 2,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "بوم عميق",
+    "category": "ضربات"
+  },
+  {
+    "path": "library/sfx/punch.m4a",
+    "kind": "sfx",
+    "duration": 0.25,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "لكمة / خبطة",
+    "category": "ضربات"
+  },
+  {
+    "path": "library/sfx/click.m4a",
+    "kind": "sfx",
+    "duration": 0.04,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "كليك",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/bubble.m4a",
+    "kind": "sfx",
+    "duration": 0.18,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "فقاعة",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/notification.m4a",
+    "kind": "sfx",
+    "duration": 0.9,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "إشعار",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/success.m4a",
+    "kind": "sfx",
+    "duration": 0.9,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "نجاح / صح",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/error.m4a",
+    "kind": "sfx",
+    "duration": 0.45,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "غلط / خطأ",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/typing.m4a",
+    "kind": "sfx",
+    "duration": 1.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "كتابة على كيبورد",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/camera-shutter.m4a",
+    "kind": "sfx",
+    "duration": 0.35,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "كاميرا (تصوير)",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/tick.m4a",
+    "kind": "sfx",
+    "duration": 0.03,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "تيك ساعة",
+    "category": "واجهة"
+  },
+  {
+    "path": "library/sfx/cash.m4a",
+    "kind": "sfx",
+    "duration": 1.2,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "كاشير (فلوس)",
+    "category": "مرح"
+  },
+  {
+    "path": "library/sfx/magic.m4a",
+    "kind": "sfx",
+    "duration": 1.4,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "سحر / لمعة",
+    "category": "مرح"
+  },
+  {
+    "path": "library/sfx/heartbeat.m4a",
+    "kind": "sfx",
+    "duration": 1.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "دقات قلب (توتر)",
+    "category": "مرح"
+  },
+  {
+    "path": "library/sfx/boing.m4a",
+    "kind": "sfx",
+    "duration": 0.6,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "بوينج (كوميدي)",
+    "category": "مرح"
+  },
+  {
+    "path": "library/music/lofi-chill.m4a",
+    "kind": "music",
+    "duration": 24,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "لوفاي هادي (80)",
+    "mood": "هادي",
+    "bpm": 80
+  },
+  {
+    "path": "library/music/upbeat.m4a",
+    "kind": "music",
+    "duration": 16,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "حماسي (120)",
+    "mood": "حماسي",
+    "bpm": 120
+  },
+  {
+    "path": "library/music/arabic-hijaz.m4a",
+    "kind": "music",
+    "duration": 19.2,
+    "license": "منتاج (متولد بالكود، مجاني لأي استخدام)",
+    "label": "عربي حجاز (عود ومقسوم)",
+    "mood": "عربي",
+    "bpm": 100
+  }
+]

@@ -17,6 +17,7 @@ import { getFormat } from "./lib/formats";
 import { assetSrc, KenBurnsImage, musicVolume } from "./lib/media";
 import { gradeFilter } from "./lib/grades";
 import { EmojiPops, type EmojiItem } from "./lib/emoji";
+import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
 
 export type CaptionStyle = "tiktok" | "pop" | "karaoke" | "subtitle" | "bold" | "beast" | "boxed" | "neon" | "minimal" | "typewriter";
 
@@ -49,6 +50,8 @@ export type CaptionedProps = {
   grade: string; // فلتر الألوان
   emojis: EmojiItem[]; // atMs بتوقيت الفيديو نفسه
   showEmojis: string;
+  soundFx: SoundFxItem[];
+  duckMusic: string;
 };
 
 const FPS = 30;
@@ -270,6 +273,7 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
   const hasAudio = !!p.media && !hasVideo;
 
   const titleIn = spring({ frame, fps, config: { damping: 200 } });
+  const spans = useMemo(() => speechSpans(p.captions ?? []), [p.captions]);
 
   return (
     <AbsoluteFill style={{ background: `linear-gradient(160deg, ${p.bgFrom}, ${p.bgTo})` }}>
@@ -290,8 +294,14 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
         <Html5Audio src={assetSrc(p.cleanAudio || p.media)} volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100} />
       )}
       {p.music && (
-        <Html5Audio src={assetSrc(p.music)} loop volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps)} />
+        <Html5Audio
+          src={assetSrc(p.music)}
+          loop
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans)}
+        />
       )}
+
+      <SoundFxLayer items={p.soundFx ?? []} />
 
       {/* ===== عنوان ثابت فوق ===== */}
       {p.title && (

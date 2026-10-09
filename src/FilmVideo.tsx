@@ -23,6 +23,7 @@ import { AnimatedText } from "./lib/AnimatedText";
 import { CaptionsLayer } from "./CaptionedVideo";
 import { shotVideo, type FilmProps, type FilmShot } from "./film/types";
 import { gradeFilter } from "./lib/grades";
+import { SoundFxLayer } from "./lib/soundFx";
 
 const FPS = 30;
 const FADE = 10; // طول الانتقال الناعم بالفريمات
@@ -259,6 +260,7 @@ export const FilmVideo: React.FC<FilmProps> = (p) => {
           </Sequence>
         );
       })}
+      <SoundFxLayer items={p.soundFx ?? []} />
       {p.music && <Html5Audio src={assetSrc(p.music)} loop volume={musicVol} />}
     </AbsoluteFill>
   );

@@ -153,6 +153,40 @@ export const activeSpeakers = (tracks, { marginDb = 4 } = {}) => {
   return { frames: out, frameMs: 100, separationDb: seps.length ? pct(seps, 0.5) : 0 };
 };
 
+// ===== مين بيتكلم من حركة الشفايف (لما المايك مشترك) =====
+// speech: فيه كلام في اللحظة دي ولا لأ (من الصوت)، mouths: حركة بق كل متكلم (على وقت الأساسية، NaN = الوش مش باين)
+// اللي بقه بيتحرك أكتر وقت الكلام هو اللي بيتكلم
+export const visualSpeakers = (speech, mouths, { margin = 0.25 } = {}) => {
+  const len = speech.length;
+  // كل كاميرا بمقياسها: الوش القريب حركته أكبر من البعيد
+  const scale = mouths.map((m) => {
+    const vals = [];
+    for (let i = 0; i < len; i++) if (speech[i] && Number.isFinite(m[i])) vals.push(m[i]);
+    vals.sort((a, b) => a - b);
+    // أعلى 10٪ (بنقرّب لفوق عشان الفيديوهات القصيرة)
+    return Math.max(1e-4, vals[Math.min(vals.length - 1, Math.ceil(0.9 * (vals.length - 1)))] ?? 0);
+  });
+  const out = new Int8Array(len);
+  let decided = 0;
+  for (let i = 0; i < len; i++) {
+    if (!speech[i]) {
+      out[i] = -1;
+      continue;
+    }
+    const v = mouths.map((m, k) => (Number.isFinite(m[i]) ? m[i] / scale[k] : -1));
+    const order = v.map((_, k) => k).sort((a, b) => v[b] - v[a]);
+    const top = order[0];
+    const second = order.length > 1 ? v[order[1]] : -1;
+    if (v[top] < 0.15) out[i] = -3; // كلام بس مفيش بق بيتحرك باين: نكمل على اللقطة الحالية
+    else if (second >= 0.15 && v[top] - second < margin) out[i] = -2; // الاتنين بيتحركوا
+    else {
+      out[i] = top;
+      decided++;
+    }
+  }
+  return { frames: out, confidence: decided / Math.max(1, speech.filter(Boolean).length) };
+};
+
 // ===== اللحظات ← لقطات =====
 // cams: [{ role: "speaker" | "wide" }]، speakerCams: رقم الكاميرا لكل متكلم
 export const buildShots = (frames, frameMs, { speakerCams, wideCam = -1, minShotMs = 1800, switchAfterMs = 500, split = false }) => {
@@ -166,7 +200,7 @@ export const buildShots = (frames, frameMs, { speakerCams, wideCam = -1, minShot
   const key = (s) => (s ? `${s.kind}:${s.cams.join(",")}` : "");
 
   for (let i = 0; i < frames.length; i++) {
-    let want = camFor(frames[i]);
+    let want = frames[i] === -3 ? null : camFor(frames[i]);
     // السكوت القصير أو كلام الاتنين القصير مش بيغير اللقطة
     if (!want && cur) want = cur;
     if (!cur) {
@@ -203,7 +237,8 @@ export const buildShots = (frames, frameMs, { speakerCams, wideCam = -1, minShot
 // ===== التحليل كله =====
 // cams: [{ file, mic?, role }]: mic = ملف صوت منفصل للمتكلم ده (أدق من صوت الكاميرا)
 // audioFile: ريكوردر صوت منفصل (لو موجود بيتزامن هو كمان)
-export const analyzePodcast = async ({ cams, audioFile, minShotMs = 1800, split = false, maxLagSec = 120, onProgress }) => {
+// mouth: (اختياري) حركة بق كل كاميرا كل 100ms بوقتها هي، من الاستوديو، لما المايك مشترك
+export const analyzePodcast = async ({ cams, audioFile, minShotMs = 1800, split = false, maxLagSec = 120, mouth, onProgress }) => {
   if (cams.length < 2) throw new PodcastError("محتاج كاميرتين على الأقل");
   const speakers = cams.map((c, i) => ({ ...c, i })).filter((c) => c.role !== "wide");
   if (!speakers.length) throw new PodcastError("لازم كاميرا واحدة على الأقل تبقى لمتكلم");
@@ -248,7 +283,29 @@ export const analyzePodcast = async ({ cams, audioFile, minShotMs = 1800, split 
     }
     return out;
   });
-  const { frames, frameMs, separationDb } = activeSpeakers(aligned);
+  let { frames, frameMs, separationDb } = activeSpeakers(aligned);
+  let mode = "audio";
+  let visualConfidence = 0;
+  // المايك مشترك؟ لو الاستوديو بعت حركة الشفايف لكل متكلم، بنحدد بيها
+  if (Array.isArray(mouth) && speakers.every((s) => Array.isArray(mouth[s.i]) && mouth[s.i].length)) {
+    onProgress?.("بيحدد المتكلم من حركة الشفايف");
+    // فيه كلام؟ (أي مايك فوق مستوى الدوشة)
+    const speech = Array.from(frames, (v) => v !== -1);
+    const n = speech.length;
+    const mouthsAligned = speakers.map((s) => {
+      const m = mouth[s.i];
+      const off = sync[s.i].offsetMs;
+      return Array.from({ length: n }, (_, t) => {
+        const j = Math.round((fromMs + t * 100 + off) / 100);
+        const v = m[j];
+        return v === null || v === undefined ? NaN : Number(v);
+      });
+    });
+    const r = visualSpeakers(speech, mouthsAligned);
+    frames = r.frames;
+    visualConfidence = Math.round(r.confidence * 100) / 100;
+    mode = "visual";
+  }
 
   // 4) اللقطات (بوقت الأساسية)
   const shots = buildShots(frames, frameMs, { speakerCams: speakers.map((s) => s.i), wideCam: wide, minShotMs, split }).map((s) => ({ ...s, fromMs: s.fromMs + fromMs, toMs: s.toMs + fromMs }));
@@ -265,5 +322,7 @@ export const analyzePodcast = async ({ cams, audioFile, minShotMs = 1800, split 
     shots,
     share: speakers.map((s, k) => ({ cam: s.i, percent: Math.round((talk[k] / total) * 100) })),
     separationDb: Math.round(separationDb * 10) / 10,
+    mode,
+    visualConfidence,
   };
 };

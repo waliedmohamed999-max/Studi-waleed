@@ -58,6 +58,7 @@ import {
   IconFiles,
 } from "./icons";
 import { SettingsTool } from "./SettingsTool";
+import type { SoundFxItem } from "../src/lib/soundFx";
 import { PodcastPanel, camColors, camName } from "./PodcastPanel";
 import { podcastShots, podcastWindow, type PodcastProps, type PodcastShot } from "../src/PodcastVideo";
 import { PlanTool } from "./PlanTool";
@@ -493,6 +494,18 @@ export const App: React.FC = () => {
   if (typeof props.voiceover === "string" && props.voiceover) {
     tracks.push({ id: "vo", label: "التعليق", icon: <IconMic size={14} />, kind: "audio", blocks: [{ id: "vo", start: 0, frames: total, label: fileName(props.voiceover), color: "#10b981" }] });
   }
+  // المؤثرات الصوتية اللي اتحطت من مكتبة الصوتيات
+  const fxList = (playerProps.soundFx as SoundFxItem[] | undefined) ?? [];
+  if (fxList.length) {
+    tracks.push({
+      id: "fx",
+      label: "المؤثرات",
+      icon: <IconMusic size={14} />,
+      kind: "audio",
+      blocks: fxList.map((f) => ({ id: f.id, start: Math.round((f.atMs / 1000) * fps), frames: Math.round(fps * 0.8), label: f.label || fileName(f.src), color: "#14b8a6" })),
+      onBlockClick: (_id, start) => seek(start),
+    });
+  }
   if (typeof props.music === "string" && props.music) {
     tracks.push({ id: "music", label: "المزيكا", icon: <IconMusic size={14} />, kind: "audio", blocks: [{ id: "music", start: 0, frames: total, label: fileName(props.music), color: "#a855f7" }] });
   }
@@ -642,7 +655,18 @@ export const App: React.FC = () => {
   const toolBody: Record<Tool, ReactNode> = {
     content: contentFields.length ? renderGroups(contentFields) : <p className="empty-note">القالب ده كل إعداداته في الخصائص.</p>,
     ai: <AiCard onCreate={(name, aiProps) => newProject("Project", name, aiProps)} />,
-    sound: <SoundTool canSetMusic={video.fields.some((f) => f.key === "music")} onUseMusic={(path) => updateProps({ music: path })} />,
+    sound: (
+      <SoundTool
+        canSetMusic={video.fields.some((f) => f.key === "music")}
+        onUseMusic={(path) => updateProps({ music: path })}
+        canAddFx={"soundFx" in video.defaultProps}
+        fx={(props.soundFx as SoundFxItem[]) ?? []}
+        onAddFx={(item) => updateProps((prev) => ({ ...prev, soundFx: [...((prev.soundFx as SoundFxItem[]) ?? []), item] }))}
+        onFxChange={(soundFx) => updateProps({ soundFx })}
+        playheadMs={(frame / fps) * 1000}
+        onSeekMs={(ms) => seek(Math.round((ms / 1000) * fps))}
+      />
+    ),
     project: <ProjectCard project={project} save={save} onRename={rename} onNew={newProject} onOpen={openProject} onDelete={deleteProject} />,
     brand: <BrandCard video={video} props={props} onApply={updateProps} />,
     batch: (

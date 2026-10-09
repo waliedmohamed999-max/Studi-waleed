@@ -24,6 +24,12 @@ export const KEYS = [
     url: "https://elevenlabs.io/app/settings/api-keys",
   },
   {
+    id: "FREESOUND_API_KEY",
+    name: "Freesound",
+    use: "مؤثرات صوتية ومزيكا مجانية برخصة CC0 (لأي استخدام تجاري ومن غير ذكر المصدر)",
+    url: "https://freesound.org/apiv2/apply/",
+  },
+  {
     id: "PEXELS_API_KEY",
     name: "Pexels",
     use: "لقطات B-roll حقيقية مجانية (بدل ما تولّدها بفلوس)",
@@ -126,6 +132,12 @@ export const createKeyStore = ({ envFile, onChange }) => {
         if (r.status === 401 && /missing_permissions/.test(r.body)) return { ok: true, message: "شغال ✓ (مفتاح محدود الصلاحيات)" };
         if (r.status === 401) return { ok: false, message: "المفتاح غلط" };
         return { ok: false, message: `ElevenLabs رجّع ${r.status}` };
+      }
+      if (id === "FREESOUND_API_KEY") {
+        const r = await ask(`https://freesound.org/apiv2/search/text/?query=whoosh&page_size=1&token=${encodeURIComponent(key)}`, {});
+        if (r.status === 200) return { ok: true, message: "شغال ✓" };
+        if (r.status === 401) return { ok: false, message: "المفتاح غلط" };
+        return { ok: false, message: `Freesound رجّع ${r.status}` };
       }
       if (id === "PEXELS_API_KEY") {
         const r = await ask("https://api.pexels.com/videos/search?query=coffee&per_page=1", { Authorization: key });

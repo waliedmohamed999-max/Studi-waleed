@@ -3077,3 +3077,123 @@ button.chip {
     grid-area: opts;
   }
 }
+
+/* ===== مكتبة المزيكا والمؤثرات ===== */
+.sounds {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sounds > .seg-toggle button {
+  font-size: var(--fs-s);
+  padding-inline: 6px;
+}
+.sound-lib,
+.sound-import,
+.freesound,
+.sound-gen {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sound-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.sound-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.sound-row .play {
+  flex: 0 0 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.sound-row .play.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.sound-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sound-info b {
+  font-size: var(--fs-s);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sound-info small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.sound-info .lic {
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sound-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.sources {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: var(--fs-s);
+  line-height: 1.8;
+}
+.sources a {
+  color: var(--accent-text);
+}
+.fx-list summary {
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-s);
+}
+.fx-row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fx-row input[type="range"] {
+  width: 70px;
+}
+.pod-mouth {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+}

@@ -3,7 +3,7 @@
 // الطابور متحفظ في ملف (out/.queue.json): لو السيرفر اتقفل، بيكمل من مكان ما وقف أول ما يشتغل تاني
 import fs from "node:fs";
 import path from "node:path";
-import { bundle } from "@remotion/bundler";
+import { getBundle } from "./perf.mjs";
 import { makeCancelSignal, renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { normalizeVideoLoudness } from "./audio.mjs";
 
@@ -30,7 +30,7 @@ export const safeName = (s, fallback = "video") =>
     .trim()
     .slice(0, 60) || fallback;
 
-export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(outDir, ".queue.json"), autoStart = true }) => {
+export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(outDir, ".queue.json"), autoStart = true, perf }) => {
   const batches = [];
   let working = false;
   let current = null; // { batch, item, cancel }
@@ -93,8 +93,8 @@ export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(out
         item.status = "rendering";
         save();
         try {
-          // bundle مرة واحدة للدفعة كلها
-          batch.serveUrl ??= await bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
+          // bundle مرة واحدة للدفعة كلها (ومشترك بين الدفعات لحد ما ملفاتك تتغير)
+          batch.serveUrl ??= await getBundle({ root, publicDir });
           const { ext, codec } = formats[batch.settings.format];
           const composition = await selectComposition({ serveUrl: batch.serveUrl, id: item.videoId, inputProps: item.props });
           const dir = path.join(outDir, batch.folder);
@@ -112,6 +112,7 @@ export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(out
             outputLocation: file,
             cancelSignal,
             ...qualitySettings(batch.settings.format, batch.settings.quality),
+            ...(perf?.renderOptions(codec, batch.settings.quality) ?? {}),
             onProgress: ({ progress }) => (item.progress = progress),
           });
           // علو الصوت على معيار المنصات (-14 LUFS)، عشان الفيديو ميطلعش واطي أو عالي عن غيره

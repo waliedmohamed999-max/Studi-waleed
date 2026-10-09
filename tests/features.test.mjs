@@ -85,7 +85,7 @@ const clip = (name, w, h, rgb, seconds, withAudio) => {
 
 beforeAll(async () => {
   fs.writeFileSync(path.join(dir, ".env"), "AI_MOCK=1\n");
-  const env = { ...process.env, API_PORT: String(PORT), MONTAG_ENV_FILE: path.join(dir, ".env"), MONTAG_DATA_DIR: dir };
+  const env = { ...process.env, API_PORT: String(PORT), MONTAG_ENV_FILE: path.join(dir, ".env"), MONTAG_DATA_DIR: dir, MONTAG_OUT_DIR: path.join(dir, "out") };
   for (const k of ["ANTHROPIC_API_KEY", "FAL_KEY", "ELEVENLABS_API_KEY", "PEXELS_API_KEY", "AI_MOCK"]) delete env[k];
   const log = fs.openSync(path.join(os.tmpdir(), "montag-feat-server.log"), "w");
   server = spawn(process.execPath, ["server.mjs"], { env, stdio: ["ignore", log, log] });
@@ -246,4 +246,65 @@ describe("البودكاست على السيرفر", () => {
     const { status } = await api("/api/podcast/analyze", { method: "POST", body: { cams: [{ path: "uploads/zz-test-pod1.mp4" }] } });
     expect(status).toBe(400);
   });
+});
+
+describe("مكتبة المزيكا والمؤثرات", () => {
+  it("باقة البداية موجودة بأسمائها وتصنيفاتها وترخيصها", async () => {
+    const { data } = await api("/api/assets");
+    const pack = data.filter((a) => a.folder === "library");
+    expect(pack.length).toBeGreaterThanOrEqual(20);
+    const riser = pack.find((a) => a.path === "library/sfx/riser.m4a");
+    expect(riser).toMatchObject({ soundKind: "sfx", category: "انتقالات" });
+    expect(riser.license).toContain("مجاني");
+    expect(pack.find((a) => a.path === "library/music/arabic-hijaz.m4a")).toMatchObject({ soundKind: "music", mood: "عربي" });
+  });
+  it("الاستيراد: التحليل بيحفظ النوع والمود والترخيص، ومش بيغير اللي اتكتب بالإيد", async () => {
+    const r = await fetch(`${base}/api/upload?name=${encodeURIComponent("Epic Upbeat Corporate.wav")}`, { method: "POST", body: fs.readFileSync("public/demo/music.wav") });
+    const { path: p } = await r.json();
+    made.push(p);
+    const a = await api("/api/sound/analyze", { method: "POST", body: { path: p, name: "Epic Upbeat Corporate.wav", license: "Pixabay Content License: مجاني للتجاري", group: "Pixabay" } });
+    expect(a.data.kind).toBe("music");
+    expect(a.data.bpm).toBeGreaterThan(100);
+    let s = (await api("/api/assets")).data.find((x) => x.path === p);
+    expect(s).toMatchObject({ soundKind: "music", mood: "شركات", group: "Pixabay", license: "Pixabay Content License: مجاني للتجاري" });
+    // تعديل بالإيد بيفضل لو اتحلل تاني
+    await api("/api/library/meta", { method: "PUT", body: { path: p, mood: "حماسي" } });
+    await api("/api/sound/analyze", { method: "POST", body: { path: p } });
+    s = (await api("/api/assets")).data.find((x) => x.path === p);
+    expect(s.mood).toBe("حماسي");
+  });
+  it("Freesound من غير مفتاح: رسالة واضحة", async () => {
+    const { status, data } = await api("/api/sound/freesound?q=whoosh");
+    expect(status).toBe(400);
+    expect(data.error).toContain("Freesound");
+  });
+  it("سرعة التصدير: الإعدادات متاحة", async () => {
+    const { data } = await api("/api/perf");
+    expect(data.cpus).toBeGreaterThan(0);
+    expect(data.concurrency).toBeGreaterThan(0);
+  });
+});
+
+describe("التصدير عن طريق الطابور (بإعدادات السرعة الجديدة)", () => {
+  it("فيديو بيخلص وفيه مؤثر صوتي ومزيكا بتوطى", async () => {
+    const props = {
+      format: "reel", font: "cairo", animation: "words", transition: "glitch", logo: "", music: "library/music/upbeat.m4a", musicVolume: 20, voiceover: "", voiceVolume: 100, sfx: "off",
+      primary: "#111111", secondary: "#333333", textColor: "#ffffff", accent: "#facc15",
+      scenes: [{ id: "a", type: "title", duration: 1.5, animation: "", bgImage: "", title: "تجربة", subtitle: "" }, { id: "b", type: "cta", duration: 1.5, animation: "", bgImage: "", text: "اطلب", sub: "" }],
+      soundFx: [{ id: "f", src: "library/sfx/riser.m4a", atMs: 500, volume: 80 }],
+    };
+    const { data: batch } = await api("/api/queue", { method: "POST", body: { name: "zz-test-queue", items: [{ videoId: "Project", name: "zz-test-queue", props }], settings: { format: "mp4", quality: "draft", thumbnail: false, loudness: true } } });
+    let b;
+    for (let i = 0; i < 300; i++) {
+      b = (await api(`/api/queue/${batch.id}`)).data;
+      if (b.status !== "running") break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(b.items[0].error ?? "").toBe("");
+    expect(b.status).toBe("done");
+    const file = path.join(dir, "out", decodeURIComponent(b.items[0].file.replace(/^\/out\//, "")));
+    const info = await probe(file);
+    expect(info.hasAudio).toBe(true);
+    removeFile(file);
+  }, 300000);
 });

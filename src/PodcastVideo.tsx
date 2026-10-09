@@ -8,6 +8,7 @@ import { getFormat } from "./lib/formats";
 import { assetSrc, musicVolume } from "./lib/media";
 import { gradeFilter } from "./lib/grades";
 import { CaptionsLayer } from "./CaptionedVideo";
+import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
 import type { Highlight, TimeRange } from "./autoedit/edl";
 
 export type PodcastCam = {
@@ -55,9 +56,14 @@ export type PodcastProps = {
   highlights: Highlight[];
   clip: TimeRange | null; // لو بنصدّر مقطع واحد بس
   // نتيجة التحليل (للعرض في الاستوديو)
-  analysis: { syncScores: number[]; share: { cam: number; percent: number }[]; separationDb: number } | null;
+  analysis: { syncScores: number[]; share: { cam: number; percent: number }[]; separationDb: number; mode?: string; visualConfidence?: number } | null;
   minShotSec: number;
   splitOnBoth: string;
+  soundFx: SoundFxItem[];
+  duckMusic: string;
+  // تحديد المتكلم من حركة الشفايف (لما المايك مشترك): كل كاميرا ليها حركة بق كل 100ms بوقتها هي
+  mouth: (number | null)[][];
+  speakerBy: string; // audio | mouth
 };
 
 const FPS = 30;
@@ -148,6 +154,11 @@ export const PodcastVideo: React.FC<PodcastProps> = (p) => {
     [p.words, p.captions, w.fromMs, w.toMs],
   );
 
+  // فترات الكلام (للمزيكا) بتوقيت الفيديو
+  const captionSpans = useMemo(
+    () => speechSpans((p.words ?? []).filter((c) => c.endMs > w.fromMs && c.startMs < w.toMs).map((c) => ({ startMs: c.startMs - w.fromMs, endMs: c.endMs - w.fromMs }))),
+    [p.words, w.fromMs, w.toMs],
+  );
   const hook = p.clip ? ((p.highlights ?? []).find((h) => h.fromMs === p.clip!.fromMs && h.toMs === p.clip!.toMs)?.hook ?? p.hookTitle) : p.hookTitle;
   const hookIn = spring({ frame, fps, config: { damping: 14 } });
   const hookOut = interpolate(frame, [fps * 3, fps * 3.4], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
@@ -223,7 +234,14 @@ export const PodcastVideo: React.FC<PodcastProps> = (p) => {
       )}
 
       {audioSrc && <Html5Audio src={assetSrc(audioSrc)} trimBefore={Math.max(0, Math.round(((w.fromMs + audioOffset) / 1000) * fps))} volume={Math.max(0, Math.min(100, p.audioVolume ?? 100)) / 100} />}
-      {p.music && <Html5Audio src={assetSrc(p.music)} loop volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps)} />}
+      <SoundFxLayer items={p.soundFx ?? []} />
+      {p.music && (
+        <Html5Audio
+          src={assetSrc(p.music)}
+          loop
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" || !captionSpans.length ? null : captionSpans)}
+        />
+      )}
     </AbsoluteFill>
   );
 };

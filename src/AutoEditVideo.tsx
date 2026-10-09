@@ -11,6 +11,7 @@ import { buildSegments, rangeToOut, refineWords, remapWords, resolveRange, sourc
 import { faceAt, faceFraming, type FacePoint } from "./autoedit/face";
 import { gradeFilter } from "./lib/grades";
 import { EmojiPops, type EmojiItem } from "./lib/emoji";
+import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
 
 // لقطة B-roll: بتظهر فوق الكلام في فترة معينة (بتوقيت الفيديو الأصلي)، والصوت بيكمل عادي
 export type Broll = TimeRange & {
@@ -80,6 +81,9 @@ export type AutoEditProps = {
   dubLang: string;
   dubVideo: string; // نسخة الفيديو اللي الشفايف فيها ماشية مع الدبلجة
   useDub: string; // on | off
+  // مؤثرات صوتية في لحظات معينة، وخفض المزيكا وقت الكلام
+  soundFx: SoundFxItem[];
+  duckMusic: string; // on | off
 };
 
 // الكلام بتوقيت الفيديو الأصلي ← بتوقيت المونتاج (للكابشن المدبلج): الكلمة بتفضل لو نصها جوه جزء متساب
@@ -205,6 +209,8 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
     () => (p.captions !== "on" ? [] : dubOn(p) && (p.dubWords ?? []).length ? remapPlainWords(p.dubWords, segments) : remapWords(input, segments)),
     [p, segments],
   );
+  // فترات الكلام بعد المونتاج (عشان المزيكا توطى تحتها)
+  const spans = useMemo(() => speechSpans(remapWords(input, segments)), [p, segments]);
   // الإيموجي بتوقيت المونتاج (اللي كلمته اتقصت بيتشال)
   const emojiItems = useMemo(() => {
     if (p.showEmojis === "off") return [];
@@ -294,7 +300,14 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
         <div style={{ position: "absolute", bottom: 0, right: 0, height: Math.max(6, height * 0.006), width: `${(frame / Math.max(1, durationInFrames - 1)) * 100}%`, background: p.highlight }} />
       )}
 
-      {p.music && <Html5Audio src={assetSrc(p.music)} loop volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps)} />}
+      <SoundFxLayer items={p.soundFx ?? []} />
+      {p.music && (
+        <Html5Audio
+          src={assetSrc(p.music)}
+          loop
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans)}
+        />
+      )}
     </AbsoluteFill>
   );
 };
