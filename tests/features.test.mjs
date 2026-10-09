@@ -163,6 +163,15 @@ describe("الخطة والإيموجي (Claude في وضع التجربة)", ()
 });
 
 describe("المكتبة والقوالب", () => {
+  it("الملف اللي اسمه عربي بيفضل باسمه في المكتبة", async () => {
+    const r = await fetch(`${base}/api/upload?name=${encodeURIComponent("صورة المنتج.png")}`, { method: "POST", body: fs.readFileSync("public/demo/logo.svg").subarray(0, 10) });
+    // SVG بامتداد png مش مهم هنا، المهم الاسم
+    const { path: p } = await r.json();
+    made.push(p);
+    const { data } = await api("/api/assets");
+    expect(data.find((x) => x.path === p).label).toBe("صورة المنتج");
+  });
+
   it("اسم وفولدر لملف، وبيظهروا في القايمة", async () => {
     await api("/api/library/meta", { method: "PUT", body: { path: "uploads/zz-test-a.mp4", label: "كليب أحمر", group: "تجارب" } });
     const { data } = await api("/api/assets");
@@ -172,6 +181,8 @@ describe("المكتبة والقوالب", () => {
   it("مينفعش تمسح ملفات التجربة أو حاجة برا الفولدر", async () => {
     expect((await api(`/api/library?path=${encodeURIComponent("demo/music.wav")}`, { method: "DELETE" })).status).toBe(400);
     expect((await api(`/api/library?path=${encodeURIComponent("../server.mjs")}`, { method: "DELETE" })).status).toBe(400);
+    // حيلة: يبدأ بـ uploads/ بس بيطلع لفولدر تاني
+    expect((await api(`/api/library?path=${encodeURIComponent("uploads/../demo/music.wav")}`, { method: "DELETE" })).status).toBe(400);
     expect(fs.existsSync("public/demo/music.wav")).toBe(true);
   });
   it("المسح بيمسح فعلًا", async () => {

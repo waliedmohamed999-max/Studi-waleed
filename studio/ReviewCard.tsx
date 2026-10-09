@@ -66,6 +66,16 @@ export const quickChecks = (videoId: string, props: Record<string, unknown>, met
   }
 
   if (videoId === "Captioned" && !(props.captions as unknown[])?.length) add("warn", "مفيش كابشن");
+
+  if (videoId === "Podcast") {
+    const cams = (props.cams as { src: string }[]) ?? [];
+    if (cams.filter((c) => c.src).length < 2) add("bad", "محتاج فيديو لكاميرتين على الأقل");
+    else if (!(props.shots as unknown[])?.length) add("warn", "الكاميرات لسه متزامنتش ومتقطعتش (اضغط \"زامن وقطّع\")");
+    const a = props.analysis as { separationDb: number; syncScores: number[] } | null;
+    if (a && a.separationDb < 6) add("warn", "تحديد المتكلم ممكن يكون غلط في حتت؛ راجع اللقطات من التايملاين");
+    if (a && a.syncScores.slice(1).some((s) => s < 0.3)) add("bad", "مزامنة كاميرا ضعيفة؛ الصوت ممكن ميمشيش مع الصورة");
+    if (props.captions === "on" && !(props.words as unknown[])?.length) add("warn", "الكلام متفرّغش، فمفيش كابشن");
+  }
   if (!out.some((c) => c.level !== "ok")) add("ok", "مفيش مشاكل واضحة 👌");
   return out;
 };

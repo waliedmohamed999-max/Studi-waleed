@@ -3054,3 +3054,26 @@ button.chip {
   color: var(--faint);
   margin-inline-start: auto;
 }
+
+/* الموبايل: أزرار التشغيل بتنزل سطرين بدل ما تطلع برا الشاشة */
+@media (max-width: 560px) {
+  .transport-bar {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "transport transport"
+      "tc opts";
+    height: auto;
+    row-gap: 4px;
+    padding: 6px 10px;
+  }
+  .transport-bar .transport {
+    grid-area: transport;
+    justify-content: center;
+  }
+  .transport-bar .tc {
+    grid-area: tc;
+  }
+  .transport-bar .transport-opts {
+    grid-area: opts;
+  }
+}

@@ -22,6 +22,10 @@ import { createBroll, BrollError } from "./scripts/broll.mjs";
 import { tryRemove } from "./scripts/fsutil.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+
+// أي خطأ مش متوقع بيتسجل بدل ما يقفل السيرفر (والتصدير الشغال يضيع)
+process.on("unhandledRejection", (e) => console.error("خطأ مش متوقع:", e));
+process.on("uncaughtException", (e) => console.error("خطأ مش متوقع:", e));
 // مفاتيح الخدمات الخارجية بتتحط من شاشة "الإعدادات" في الاستوديو، وبتتحفظ في ملف .env جنب السيرفر
 // (MONTAG_ENV_FILE للاختبارات بس، عشان متلمسش مفاتيحك الحقيقية)
 const envFile = process.env.MONTAG_ENV_FILE || path.join(root, ".env");
@@ -102,6 +106,15 @@ app.post("/api/upload", async (req, res) => {
   }
   const kind = kindOf(name);
   const duration = kind === "audio" || kind === "video" ? await mediaDuration(file) : 0;
+  // اسم الملف على الهارد إنجليزي بس، فالاسم الأصلي (ممكن يكون عربي) بيتحفظ كاسم ظاهر في المكتبة
+  const label = path.basename(original, path.extname(original)).trim().slice(0, 80);
+  if (label && label !== base) {
+    try {
+      const meta = readLibrary();
+      meta[`uploads/${name}`] = { label, group: "" };
+      fs.writeFileSync(libraryFile, JSON.stringify(meta, null, 2));
+    } catch {}
+  }
   res.json({ path: `uploads/${name}`, kind, duration });
 });
 
@@ -171,7 +184,8 @@ app.put("/api/library/meta", (req, res) => {
 app.delete("/api/library", (req, res) => {
   const p = String(req.query.path ?? "");
   const file = publicPath(p);
-  if (!file || !p.startsWith("uploads/")) return res.status(400).json({ error: "تقدر تمسح الملفات اللي رفعتها بس" });
+  // بنتأكد من المسار الحقيقي (مش بس أوله)، عشان "uploads/../demo/..." ميعديش
+  if (!file || !file.startsWith(uploadsDir + path.sep)) return res.status(400).json({ error: "تقدر تمسح الملفات اللي رفعتها بس" });
   tryRemove(file);
   const meta = readLibrary();
   delete meta[p];

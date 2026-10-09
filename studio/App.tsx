@@ -608,9 +608,11 @@ export const App: React.FC = () => {
   // الخانات بتتقسم أقسام حسب الـ group، وكل قسم بيتقفل ويتفتح
   const renderGroups = (fields: Field[]) => {
     const groups: { name: string; fields: Field[] }[] = [];
+    // الخانات اللي في نفس القسم بتتجمع مع بعض حتى لو مش ورا بعض في التعريف
     for (const f of fields) {
       const name = f.group ?? "عام";
-      if (groups.at(-1)?.name === name) groups.at(-1)!.fields.push(f);
+      const g = groups.find((x) => x.name === name);
+      if (g) g.fields.push(f);
       else groups.push({ name, fields: [f] });
     }
     return groups.map((g) => (
