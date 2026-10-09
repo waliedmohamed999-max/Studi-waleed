@@ -6,6 +6,7 @@ export type FilmCharacter = {
   name: string;
   description: string; // الشكل واللبس والعمر (بالإنجليزي عشان موديل الصور)
   image: string; // صورة مرجعية للشخصية (بتخلي شكله ثابت في كل اللقطات)
+  voiceId?: string; // صوت ElevenLabs خاص بالشخصية (فاضي = صوت الفيلم)
 };
 
 // صورة رفعها المستخدم (منتج، مكان، شخص، لوجو) + ملاحظة بتقول هي إيه
@@ -30,10 +31,19 @@ export type FilmShot = {
   words: Caption[]; // توقيت كل كلمة في التعليق (بالمللي ثانية من أول اللقطة)
   sfxPrompt: string; // وصف الصوت المحيط أو المؤثر (إنجليزي)
   sfx: string; // ملف المؤثر المتولد
+  speaker: string; // الشخصية اللي بتقول الكلام في الكادر (فاضي = راوي من برا الكادر)
+  lipsync: string; // نسخة الفيديو اللي الشفايف فيها ماشية مع الكلام
+  lipsyncOf: string; // الفيديو والصوت اللي اتعملت منهم (لو اتغيروا تبقى قديمة)
 };
 
+// لو حركة الشفايف معمولة على نفس الفيديو والصوت الحاليين، نعرضها بدل الفيديو الأصلي
+export const lipsyncKey = (s: Pick<FilmShot, "clip" | "voice">) => `${s.clip}|${s.voice}`;
+export const lipsyncReady = (s: FilmShot) => !!s.lipsync && s.lipsyncOf === lipsyncKey(s);
+export const needsLipsync = (s: FilmShot) => !!s.speaker && !!s.clip && !!s.voice && !lipsyncReady(s);
+export const shotVideo = (s: FilmShot) => (lipsyncReady(s) ? s.lipsync : s.clip);
+
 // العمليات الطويلة اللي شغالة على السيرفر (بتتحفظ عشان لو قفلت الصفحة ترجع تتابعها)
-export type FilmJob = { kind: "plan" | "character" | "keyframe" | "voice" | "clip" | "music" | "sfx"; target: string; jobId: string };
+export type FilmJob = { kind: "plan" | "character" | "keyframe" | "voice" | "clip" | "lipsync" | "music" | "sfx"; target: string; jobId: string };
 
 export type FilmProps = {
   // الفكرة
@@ -97,4 +107,7 @@ export const emptyShot = (id: string): FilmShot => ({
   words: [],
   sfxPrompt: "",
   sfx: "",
+  speaker: "",
+  lipsync: "",
+  lipsyncOf: "",
 });

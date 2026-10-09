@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { downloadWhisperModel, installWhisperCpp, toCaptions } from "@remotion/install-whisper-cpp";
+import { tryRemove } from "./fsutil.mjs";
 
 // اسم إعداد التوقيت لكل موديل (نفس جدول Remotion)
 const modelToDtw = (m) => ({ "large-v3-turbo": "large.v3.turbo", "large-v3": "large.v3", "large-v2": "large.v2", "large-v1": "large.v1" })[m] ?? m;
@@ -57,7 +58,7 @@ export const setupWhisper = async (onProgress = () => {}) => {
     } finally {
       process.chdir(prev);
       // الملف المضغوط اللي اتنزّل مش محتاجينه بعد ما اتفك
-      fs.rmSync(path.join(root, "whisper-bin-x64.zip"), { force: true });
+      tryRemove(path.join(root, "whisper-bin-x64.zip"));
     }
     if (!fs.existsSync(expectedExe)) {
       const cli = findFile(WHISPER_DIR, "whisper-cli.exe");
@@ -140,7 +141,7 @@ export const detectSpeech = async (input) => {
     }
     return merged.filter(([a, b]) => b - a >= 80).map(([fromMs, toMs]) => ({ fromMs, toMs }));
   } finally {
-    fs.rmSync(wav, { force: true, maxRetries: 5, retryDelay: 200 });
+    tryRemove(wav);
   }
 };
 
@@ -195,8 +196,8 @@ export const transcribeFile = async (input, { language = "ar", onProgress } = {}
     const json = JSON.parse(fs.readFileSync(`${outBase}.json`, "utf8"));
     return toCaptions({ whisperCppOutput: json }).captions;
   } finally {
-    fs.rmSync(wav, { force: true, maxRetries: 5, retryDelay: 200 });
-    fs.rmSync(`${outBase}.json`, { force: true, maxRetries: 5, retryDelay: 200 });
+    tryRemove(wav);
+    tryRemove(`${outBase}.json`);
   }
 };
 

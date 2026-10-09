@@ -26,6 +26,12 @@ export const MODELS = {
       pricePerSecond: 0.084, // من غير صوت (بالصوت 0.112)
     },
   },
+  // حركة الشفايف: بيخلي بق الشخصية ماشي مع التعليق الصوتي (sync.so على fal.ai)
+  lipsync: {
+    endpoint: "fal-ai/sync-lipsync/v2",
+    model: "lipsync-2", // lipsync-2-pro أدق في التفاصيل بس أغلى 1.67 مرة
+    pricePerSecond: 0.05, // ~3$ للدقيقة
+  },
   // المدة اللي موديلات الفيديو بتقبلها (ثواني صحيحة)
   clipSeconds: { min: 3, max: 15 },
   voice: {

@@ -21,7 +21,7 @@ import { getFormat } from "./lib/formats";
 import { assetSrc, fadeEnvelope, KenBurnsImage } from "./lib/media";
 import { AnimatedText } from "./lib/AnimatedText";
 import { CaptionsLayer } from "./CaptionedVideo";
-import type { FilmProps, FilmShot } from "./film/types";
+import { shotVideo, type FilmProps, type FilmShot } from "./film/types";
 
 const FPS = 30;
 const FADE = 10; // طول الانتقال الناعم بالفريمات
@@ -107,7 +107,7 @@ const ShotView: React.FC<{ shot: FilmShot; index: number; p: FilmProps; fontFami
     <AbsoluteFill style={{ background: "#000" }}>
       <AbsoluteFill style={{ filter: gradeFilter[p.grade] ?? "none" }}>
         {shot.clip ? (
-          <OffthreadVideo src={assetSrc(shot.clip)} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <OffthreadVideo src={assetSrc(shotVideo(shot))} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : shot.keyframe ? (
           // لسه الفيديو متولدش: بنعرض الصورة بحركة بسيطة (تنفع كمعاينة أو كنسخة رخيصة)
           <KenBurnsImage src={shot.keyframe} duration={dur} index={index} />

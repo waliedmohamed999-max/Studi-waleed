@@ -1,13 +1,15 @@
 // تحسين الصوت: تنضيف الدوشة + شيل الطنين الواطي + ضبط العلو
 // FFmpeg اللي جاي مع Remotion مفيهوش فلاتر تنضيف، فالتنضيف معمول هنا بالجافاسكريبت:
 //   1) High-pass عند 80Hz: بيشيل الهمهمة والتكييف والخبط على الترابيزة
-//   2) Spectral subtraction: بنتعلم "بصمة" الدوشة من أهدى لحظات التسجيل ونطرحها من كل الصوت
-//   3) loudnorm (من FFmpeg): علو ثابت ومريح زي المنصات
+//   2) RNNoise (ذكاء اصطناعي) أو Spectral subtraction (الطريقة القديمة: بصمة الدوشة من أهدى اللحظات)
+//   3) لمسة استوديو: EQ + كومبريسور
+//   4) loudnorm (من FFmpeg): علو ثابت ومريح زي المنصات
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { ffmpegPath } from "./whisper.mjs";
+import { tryRemove } from "./fsutil.mjs";
 
 const RATE = 48000;
 
@@ -173,24 +175,129 @@ export const denoise = (x, strength = 0.6) => {
   return y;
 };
 
+// ===== تنضيف بالذكاء الاصطناعي (RNNoise) =====
+// شبكة عصبية متدربة على الكلام، فبتشيل الدوشة اللي بتتغير كمان (شارع، ناس، كيبورد، مروحة)
+// مش بس الدوشة الثابتة زي الطريقة القديمة
+let rnnoiseLib = null;
+const loadRnnoise = async () => {
+  if (!rnnoiseLib) {
+    // المكتبة معمولة للمتصفح، وبتتأكد إنها في متصفح أو Worker، فبنوهمها لحظة التحميل بس
+    const had = "WorkerGlobalScope" in globalThis;
+    if (!had) globalThis.WorkerGlobalScope = class {};
+    try {
+      const { Rnnoise } = await import("@shiguredo/rnnoise-wasm");
+      rnnoiseLib = await Rnnoise.load();
+    } finally {
+      if (!had) delete globalThis.WorkerGlobalScope;
+    }
+  }
+  return rnnoiseLib;
+};
+
+// RNNoise بيطلّع الصوت متأخر 20ms (960 عينة)، فبنرجّعه لمكانه عشان يفضل مظبوط مع الصورة
+const RNNOISE_DELAY = 960;
+
+export const denoiseAi = async (x) => {
+  const lib = await loadRnnoise();
+  const size = lib.frameSize; // 480 عينة = 10ms
+  const st = lib.createDenoiseState();
+  const total = Math.ceil((x.length + RNNOISE_DELAY) / size) * size;
+  const y = new Float64Array(x.length);
+  const frame = new Float32Array(size);
+  try {
+    for (let o = 0; o < total; o += size) {
+      for (let i = 0; i < size; i++) frame[i] = (x[o + i] ?? 0) * 32768;
+      st.processFrame(frame);
+      for (let i = 0; i < size; i++) {
+        const at = o + i - RNNOISE_DELAY;
+        if (at >= 0 && at < y.length) y[at] = frame[i] / 32768;
+      }
+    }
+  } finally {
+    st.destroy();
+  }
+  return y;
+};
+
+// ===== فلتر Peaking EQ (RBJ) =====
+const peaking = (x, freq, gainDb, q = 1) => {
+  const A = 10 ** (gainDb / 40);
+  const w = (2 * Math.PI * freq) / RATE;
+  const alpha = Math.sin(w) / (2 * q);
+  const cos = Math.cos(w);
+  const a0 = 1 + alpha / A;
+  const [b0, b1, b2] = [(1 + alpha * A) / a0, (-2 * cos) / a0, (1 - alpha * A) / a0];
+  const [a1, a2] = [(-2 * cos) / a0, (1 - alpha / A) / a0];
+  const y = new Float64Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x[i];
+    y2 = y1;
+    y1 = v;
+    y[i] = v;
+  }
+  return y;
+};
+
+// ===== كومبريسور: بيقرّب الكلام العالي من الواطي عشان الصوت يبقى "مليان" زي الإذاعة =====
+// gateDb: تحت المستوى ده (بين الكلام) بنوطّي الصوت كمان، عشان الكومبريسور ميعليش بواقي الدوشة
+export const compress = (x, { thresholdDb = -24, ratio = 3, attackMs = 8, releaseMs = 120, gateDb = -48 } = {}) => {
+  const att = Math.exp(-1 / ((attackMs / 1000) * RATE));
+  const rel = Math.exp(-1 / ((releaseMs / 1000) * RATE));
+  const y = new Float64Array(x.length);
+  let env = 0;
+  for (let i = 0; i < x.length; i++) {
+    const a = Math.abs(x[i]);
+    env = a > env ? att * env + (1 - att) * a : rel * env + (1 - rel) * a;
+    const db = 20 * Math.log10(env + 1e-9);
+    const over = db - thresholdDb;
+    const gainDb = over > 0 ? -over * (1 - 1 / ratio) : db < gateDb ? Math.max(-30, db - gateDb) : 0;
+    y[i] = x[i] * 10 ** (gainDb / 20);
+  }
+  return y;
+};
+
+// ===== لمسة "صوت استوديو": شيل الطنين المكتوم وزود الوضوح =====
+export const voicePolish = (x) => {
+  let y = peaking(x, 300, -2.5, 1); // الصوت المكتوم (Boxy) بتاع الأوض الفاضية
+  y = peaking(y, 3500, 3, 0.9); // وضوح الكلام
+  y = peaking(y, 7500, -1.5, 2); // تهدية حرف السين شوية
+  return compress(y);
+};
+
 // ===== تنضيف ملف صوت أو فيديو ← ملف WAV نضيف =====
-export const cleanAudio = async (input, output, { strength = 0.6, onProgress } = {}) => {
+// mode: "ai" (الأقوى، الافتراضي) أو "classic" (الطريقة القديمة بس)
+// polish: لمسة الاستوديو (EQ + كومبريسور)
+export const cleanAudio = async (input, output, { strength = 0.6, mode = "ai", polish = true, onProgress } = {}) => {
   const tmp = path.join(os.tmpdir(), `montag-clean-${Date.now()}`);
   const raw = `${tmp}-raw.wav`;
   const mid = `${tmp}-mid.wav`;
   try {
     onProgress?.("بيقرا الصوت");
     await run(["-y", "-i", input, "-vn", "-ac", "1", "-ar", String(RATE), "-c:a", "pcm_s16le", raw]);
-    onProgress?.("بينضّف الدوشة");
     let x = readWav(raw);
     x = highpass(x, 80);
-    if (strength > 0) x = denoise(x, strength);
+    if (mode === "ai" && strength > 0) {
+      onProgress?.("الذكاء الاصطناعي بينضّف الدوشة");
+      x = await denoiseAi(x);
+      // بواقي الدوشة الثابتة (لو قوي) بنشيلها بالطريقة القديمة بخفة
+      if (strength > 0.7) x = denoise(x, 0.3);
+    } else if (strength > 0) {
+      onProgress?.("بينضّف الدوشة");
+      x = denoise(x, strength);
+    }
+    if (polish) {
+      onProgress?.("بيحسّن الصوت");
+      x = voicePolish(x);
+    }
     writeWav(mid, x);
     onProgress?.("بيظبط العلو");
     // الصوت بيتظبط على -16 LUFS (مستوى الكلام المريح)، وبعدين الفيديو النهائي كله بيتظبط على -14
     await run(["-y", "-i", mid, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", String(RATE), "-c:a", "pcm_s16le", output]);
   } finally {
-    for (const f of [raw, mid]) fs.rmSync(f, { force: true, maxRetries: 5, retryDelay: 200 });
+    for (const f of [raw, mid]) tryRemove(f);
   }
 };
 
@@ -201,6 +308,6 @@ export const normalizeVideoLoudness = async (file) => {
   const ext = path.extname(file).toLowerCase();
   const codec = ext === ".webm" ? ["-c:a", "libopus", "-b:a", "160k"] : ["-c:a", "aac", "-b:a", "192k"];
   await run(["-y", "-i", file, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000", ...codec, tmp]);
-  fs.rmSync(file, { force: true, maxRetries: 5, retryDelay: 200 });
+  tryRemove(file);
   fs.renameSync(tmp, file);
 };

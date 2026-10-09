@@ -1,13 +1,28 @@
 // "مونتاج أوتوماتيك": فيديو بتتكلم فيه ← نسخة متقطعة ومتظبطة جاهزة للنشر
-// قص السكتات والإمم والإعادات، زووم بيتغير مع القطع، كابشن، عنوان شادد، ومزيكا
+// قص السكتات والإمم والإعادات، زووم بيتغير مع القطع، كادر بيتبع الوش، لقطات B-roll، كابشن، عنوان شادد، ومزيكا
 import { useMemo } from "react";
 import { AbsoluteFill, Html5Audio, OffthreadVideo, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { Caption } from "@remotion/captions";
 import { getFont } from "./lib/fonts";
 import { getFormat } from "./lib/formats";
-import { assetSrc, musicVolume } from "./lib/media";
+import { assetSrc, KenBurnsImage, musicVolume } from "./lib/media";
 import { CaptionsLayer } from "./CaptionedVideo";
-import { buildSegments, refineWords, remapWords, resolveRange, sourceToOut, totalMs, type CutRange, type EdlInput, type Highlight, type Segment, type TimeRange } from "./autoedit/edl";
+import { buildSegments, rangeToOut, refineWords, remapWords, resolveRange, sourceToOut, totalMs, type CutRange, type EdlInput, type Highlight, type Segment, type TimeRange } from "./autoedit/edl";
+import { faceAt, faceFraming, type FacePoint } from "./autoedit/face";
+
+// لقطة B-roll: بتظهر فوق الكلام في فترة معينة (بتوقيت الفيديو الأصلي)، والصوت بيكمل عادي
+export type Broll = TimeRange & {
+  id: string;
+  fromWord?: number;
+  toWord?: number;
+  query: string; // وصف البحث (إنجليزي)
+  description: string; // وصف اللقطة بالعربي
+  src: string;
+  kind: "video" | "image" | "";
+  credit: string;
+  enabled: boolean;
+  skip: number; // رقم النتيجة في البحث (عشان "لقطة تانية")
+};
 
 export type AutoEditProps = {
   media: string;
@@ -38,6 +53,13 @@ export type AutoEditProps = {
   progressBar: string;
   music: string;
   musicVolume: number;
+  // تتبع الوش
+  faceTrack: FacePoint[];
+  mediaWidth: number;
+  mediaHeight: number;
+  faceFollow: string; // on | off
+  // لقطات B-roll
+  brolls: Broll[];
 };
 
 const FPS = 30;
@@ -65,7 +87,12 @@ export const calculateAutoEdit = (p: AutoEditProps) => {
 // ===== مقطع واحد من الفيديو الأصلي، بالزووم بتاعه =====
 const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; frames: number }> = ({ p, seg, index, frames }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
+
+  // الكادر بيتبع الوش (لو اتعمل تتبع)
+  const follow = p.faceFollow !== "off" && (p.faceTrack ?? []).length > 0;
+  const face = follow ? faceAt(p.faceTrack, seg.fromMs + (frame / fps) * 1000) : null;
+  const framing = faceFraming({ srcW: p.mediaWidth, srcH: p.mediaHeight, outW: width, outH: height, face });
 
   // الزووم: jump = بيتبدل مع كل قطع (زي اليوتيوبرز)، emphasis = بيقرّب على الجمل المهمة بس
   const words = refineWords(p.words ?? [], p.speech ?? []);
@@ -82,17 +109,44 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
   const trimBefore = Math.round((seg.fromMs / 1000) * fps);
 
   return (
-    <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: "50% 40%" }}>
+    <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: framing.origin }}>
       <OffthreadVideo
         src={assetSrc(p.media)}
         trimBefore={trimBefore}
         muted={!!p.cleanAudio}
         volume={p.cleanAudio ? 0 : vol}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: framing.objectPosition }}
       />
       {p.cleanAudio && <Html5Audio src={assetSrc(p.cleanAudio)} trimBefore={trimBefore} volume={vol} />}
     </AbsoluteFill>
   );
+};
+
+// ===== لقطة B-roll فوق الكلام: بتدخل بزووم خفيف وتطلع بـ fade =====
+const BrollView: React.FC<{ b: Broll; frames: number; index: number }> = ({ b, frames, index }) => {
+  const frame = useCurrentFrame();
+  const fade = Math.min(1, frame / 5, (frames - frame) / 5);
+  const scale = interpolate(frame, [0, frames], [1.06, 1]);
+  return (
+    <AbsoluteFill style={{ opacity: Math.max(0, fade), background: "#000" }}>
+      {b.kind === "video" ? (
+        <AbsoluteFill style={{ transform: `scale(${scale})` }}>
+          <OffthreadVideo src={assetSrc(b.src)} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </AbsoluteFill>
+      ) : (
+        <KenBurnsImage src={b.src} duration={frames} index={index} />
+      )}
+    </AbsoluteFill>
+  );
+};
+
+// فترات الـ B-roll بعد المونتاج (اللي ليها لقطة ومش متلغية)
+export const brollSpans = (p: AutoEditProps, segments: Segment[]) => {
+  const words = refineWords(p.words ?? [], p.speech ?? []);
+  return (p.brolls ?? [])
+    .filter((b) => b.enabled && b.src)
+    .map((b) => ({ b, out: rangeToOut(resolveRange(b, words), segments) }))
+    .filter((x): x is { b: Broll; out: TimeRange } => !!x.out && x.out.toMs - x.out.fromMs >= 500);
 };
 
 export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
@@ -103,6 +157,7 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
   const input = edlInput(p);
   const segments = useMemo(() => buildSegments(input), [p]);
   const captions = useMemo(() => (p.captions === "on" ? remapWords(input, segments) : []), [p, segments]);
+  const brolls = useMemo(() => brollSpans(p, segments), [p, segments]);
 
   if (!p.media) {
     return (
@@ -125,6 +180,17 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
         return (
           <Sequence key={`${seg.fromMs}-${i}`} from={from} durationInFrames={Math.max(1, to - from)} premountFor={fps}>
             <SegmentView p={p} seg={seg} index={i} frames={to - from} />
+          </Sequence>
+        );
+      })}
+
+      {/* لقطات B-roll فوق الكلام (الصوت بيكمل تحتها) */}
+      {brolls.map(({ b, out }, i) => {
+        const from = Math.round((out.fromMs / 1000) * fps);
+        const frames = Math.max(1, Math.round((out.toMs / 1000) * fps) - from);
+        return (
+          <Sequence key={b.id} from={from} durationInFrames={frames} premountFor={fps}>
+            <BrollView b={b} frames={frames} index={i} />
           </Sequence>
         );
       })}

@@ -1,5 +1,6 @@
 // أدوات الذكاء الاصطناعي في الاستوديو: بتكلم /api/ai/* وبتحوّل ردود Claude لمشاهد
 import { useEffect, useState } from "react";
+import { useKeysVersion } from "./settings";
 import { newScene, sceneDefs, sceneTypes, type Scene, type SceneType } from "../src/scenes/defs";
 import { fontOptions } from "../src/lib/fonts";
 import { animationOptions } from "../src/lib/AnimatedText";
@@ -14,7 +15,7 @@ export const dialects: { value: Dialect; label: string }[] = [
 ];
 
 // Claude مش بيقدر يجيب صور، فمشهد "صورة + كلام" مش من ضمن اختياراته
-const aiSceneTypes = sceneTypes.filter((t) => t !== "imageText");
+const aiSceneTypes = sceneTypes.filter((t) => t !== "imageText" && t !== "video");
 
 // الاختيارات المتاحة بتتبعت مع كل طلب، فلو ضفت خط أو حركة جديدة Claude هيشوفها لوحده
 export const aiOptions = {
@@ -42,12 +43,13 @@ export const callAi = async <T,>(route: "video" | "script" | "brand" | "scene", 
 
 export const useAiStatus = () => {
   const [status, setStatus] = useState<{ available: boolean; mock: boolean } | null>(null);
+  const keys = useKeysVersion();
   useEffect(() => {
     fetch("/api/ai/status")
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => setStatus({ available: false, mock: false }));
-  }, []);
+  }, [keys]);
   return status;
 };
 

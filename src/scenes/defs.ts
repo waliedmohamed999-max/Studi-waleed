@@ -2,8 +2,9 @@
 // الفيديو والاستوديو الاتنين بيقروا من هنا
 import type { Field } from "../lib/fieldTypes";
 import { animationOptions } from "../lib/AnimatedText";
+import type { Layer } from "./layers";
 
-export type SceneType = "title" | "text" | "imageText" | "bullets" | "stat" | "quote" | "cta";
+export type SceneType = "title" | "text" | "imageText" | "video" | "bullets" | "stat" | "quote" | "cta";
 
 export type Scene = {
   id: string;
@@ -11,6 +12,7 @@ export type Scene = {
   duration: number; // بالثواني
   animation: string; // "" = زي إعدادات المشروع
   bgImage: string; // صورة خلفية اختيارية
+  layers?: Layer[]; // طبقات فوق المشهد (نص، صورة، ملصق)
   [key: string]: unknown; // باقي الخانات حسب نوع المشهد
 };
 
@@ -55,6 +57,19 @@ export const sceneDefs: Record<SceneType, SceneDef> = {
       { key: "text", label: "الكلام", type: "text" },
     ],
     summary: (s) => str(s.text),
+  },
+  video: {
+    label: "فيديو + كلام",
+    icon: "🎬",
+    color: "#8b5cf6",
+    defaults: { video: "", text: "", videoVolume: 0, trimStart: 0 },
+    fields: [
+      { key: "video", label: "الفيديو", type: "video" },
+      { key: "text", label: "الكلام (اختياري)", type: "text" },
+      { key: "trimStart", label: "ابدأ الفيديو من", type: "number", min: 0, max: 600, step: 0.5, suffix: "ثانية" },
+      { key: "videoVolume", label: "صوت الفيديو", type: "number", min: 0, max: 100, step: 5, suffix: "٪" },
+    ],
+    summary: (s) => str(s.text) || "فيديو",
   },
   bullets: {
     label: "قايمة نقاط",
@@ -110,8 +125,8 @@ export const sceneTypes = Object.keys(sceneDefs) as SceneType[];
 export const commonSceneFields = (type: SceneType): Field[] => [
   { key: "duration", label: "مدة المشهد", type: "number", min: 1, max: 15, step: 0.5, suffix: "ثانية" },
   { key: "animation", label: "حركة الكلام", type: "select", options: [{ value: "", label: "زي إعدادات المشروع" }, ...animationOptions] },
-  // مشهد "صورة + كلام" ليه صورته الخاصة، فمش محتاج خلفية
-  ...(type === "imageText" ? [] : [{ key: "bgImage", label: "صورة خلفية (اختياري)", type: "image" } as Field]),
+  // مشهد "صورة + كلام" و"فيديو + كلام" ليهم خلفيتهم الخاصة
+  ...(type === "imageText" || type === "video" ? [] : [{ key: "bgImage", label: "صورة خلفية (اختياري)", type: "image" } as Field]),
 ];
 
 export const uid = () => Math.random().toString(36).slice(2, 9);

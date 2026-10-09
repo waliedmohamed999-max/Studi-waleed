@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Caption } from "@remotion/captions";
 import { uid } from "../src/scenes/defs";
 import { filmStarts } from "../src/FilmVideo";
-import { emptyShot, type FilmCharacter, type FilmJob, type FilmProps, type FilmShot, type FilmUpload } from "../src/film/types";
+import { emptyShot, lipsyncReady, needsLipsync, type FilmCharacter, type FilmJob, type FilmProps, type FilmShot, type FilmUpload } from "../src/film/types";
 import { AssetPicker } from "./fields";
 import { sendToQueue, type ExportSettings } from "./ExportCard";
+import { KeyHint, useKeysVersion } from "./settings";
 
 type Props = Record<string, unknown>;
 type Status = {
@@ -16,6 +17,7 @@ type Status = {
   mock: boolean;
   tiers: Record<string, { label: string; pricePerSecond: number }>;
   imagePrice: number;
+  lipsyncPricePerSecond: number;
   voiceModels: string[];
   voicePricePer1kChars: number;
   clipSeconds: { min: number; max: number };
@@ -28,7 +30,7 @@ type Plan = {
   ctaSub: string;
   characters: { id: string; name: string; description: string }[];
   musicPrompt: string;
-  shots: Omit<FilmShot, "id" | "keyframe" | "clip" | "clipDuration" | "voice" | "voiceDuration" | "words" | "sfx">[];
+  shots: Omit<FilmShot, "id" | "keyframe" | "clip" | "clipDuration" | "voice" | "voiceDuration" | "words" | "sfx" | "lipsync" | "lipsyncOf">[];
 };
 
 const videoTypes = ["إعلان تجاري", "فيلم قصير", "تقديم شركة", "تقديم منتج", "قصة ملهمة", "محتوى تعليمي", "تهنئة / مناسبة وطنية", "إعلان عقاري"];
@@ -40,7 +42,7 @@ const dialects = [
   { value: "eg", label: "مصري" },
   { value: "en", label: "English" },
 ];
-const kindLabel: Record<FilmJob["kind"], string> = { plan: "السيناريو", character: "صورة الشخصية", keyframe: "صورة اللقطة", voice: "الصوت", clip: "الفيديو", music: "المزيكا", sfx: "المؤثر الصوتي" };
+const kindLabel: Record<FilmJob["kind"], string> = { plan: "السيناريو", character: "صورة الشخصية", keyframe: "صورة اللقطة", voice: "الصوت", clip: "الفيديو", lipsync: "حركة الشفايف", music: "المزيكا", sfx: "المؤثر الصوتي" };
 
 const money = (n: number) => `$${n.toFixed(n < 1 ? 2 : 1)}`;
 const clampDur = (n: number, min = 3, max = 15) => Math.min(max, Math.max(min, Math.round(Number(n) || 5)));
@@ -59,6 +61,10 @@ export const FilmPanel: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [openShot, setOpenShot] = useState<string | null>(null);
   const [jobSteps, setJobSteps] = useState<Record<string, string>>({});
+
+  // لما المفاتيح تتغير من الإعدادات، نقرا الحالة من جديد
+  const keys = useKeysVersion();
+  useEffect(() => setStatus(null), [keys]);
 
   // لو السيرفر لسه بيقوم، بنحاول تاني كل 3 ثواني
   useEffect(() => {
@@ -103,6 +109,7 @@ export const FilmPanel: React.FC<{
     if (job.kind === "clip") return patchShot(job.target, { clip: String(result.clip), clipDuration: Number(result.clipDuration) });
     if (job.kind === "music") return patchFilm(() => ({ music: String(result.path) }));
     if (job.kind === "sfx") return patchShot(job.target, { sfx: String(result.path) });
+    if (job.kind === "lipsync") return patchShot(job.target, { lipsync: String(result.lipsync), lipsyncOf: String(result.lipsyncOf) });
     if (job.kind === "voice") {
       const voiceDuration = Number(result.voiceDuration) || 0;
       return patchFilm((f) => ({
@@ -165,8 +172,11 @@ export const FilmPanel: React.FC<{
   const genKeyframe = (s: FilmShot) => start("keyframe", s.id, { shot: s, characters: p.characters, uploads: p.uploads, style: p.style, format: p.format });
   const genVoice = (s: FilmShot) => {
     const i = p.shots.findIndex((x) => x.id === s.id);
-    start("voice", s.id, { shot: s, prevText: p.shots[i - 1]?.voiceLine ?? "", nextText: p.shots[i + 1]?.voiceLine ?? "", provider: p.voiceProvider, voiceId: p.voiceId, model: p.voiceModel });
+    // لو الكلام على لسان شخصية ليها صوت خاص، بنستخدمه (وإلا صوت الفيلم)
+    const own = p.characters.find((c) => c.id === s.speaker)?.voiceId;
+    start("voice", s.id, { shot: s, prevText: p.shots[i - 1]?.voiceLine ?? "", nextText: p.shots[i + 1]?.voiceLine ?? "", provider: p.voiceProvider, voiceId: own || p.voiceId, model: p.voiceModel });
   };
+  const genLipsync = (s: FilmShot) => start("lipsync", s.id, { shot: s });
   const genClip = (s: FilmShot) => start("clip", s.id, { shot: s, quality: p.quality, style: p.style });
   // المزيكا على طول الفيلم + ثانيتين، والمؤثر على طول اللقطة
   const filmSeconds = () => p.shots.reduce((sum, s) => sum + clampDur(s.duration), 0) + (p.cta || p.logo ? 3 : 0);
@@ -184,6 +194,8 @@ export const FilmPanel: React.FC<{
   const needKey = p.shots.filter((s) => !s.keyframe);
   const needVoice = p.shots.filter((s) => s.voiceLine.trim() && !s.voice);
   const needClip = p.shots.filter((s) => s.keyframe && (!s.clip || clipOutdated(s)));
+  const needLip = p.shots.filter(needsLipsync);
+  const lipCost = (shots: FilmShot[]) => shots.reduce((sum, s) => sum + clampDur(s.duration) * (status?.lipsyncPricePerSecond ?? 0.05), 0);
   const imgCost = (n: number) => n * (status?.imagePrice ?? 0.15);
   const clipCost = (shots: FilmShot[]) => shots.reduce((sum, s) => sum + clampDur(s.duration) * (tier?.pricePerSecond ?? 0.22), 0);
   const voiceCost = (shots: FilmShot[]) =>
@@ -209,7 +221,9 @@ export const FilmPanel: React.FC<{
       const voice = p.voiceProvider === "elevenlabs" ? ((p.targetSeconds * 14) / 1000) * (status?.voicePricePer1kChars ?? 0.08) : 0;
       return 0.3 + imgCost(shots + chars) + p.targetSeconds * price + voice;
     }
-    return imgCost(needChar.length + needKey.length) + p.shots.filter((s) => !s.clip || clipOutdated(s)).reduce((sum, s) => sum + clampDur(s.duration) * price, 0) + voiceCost(needVoice);
+    // حركة الشفايف: كل لقطة فيها شخصية بتتكلم في الكادر ومش معمولة لسه
+    const lips = lipCost(p.shots.filter((s) => s.speaker && s.voiceLine.trim() && !lipsyncReady(s)));
+    return imgCost(needChar.length + needKey.length) + p.shots.filter((s) => !s.clip || clipOutdated(s)).reduce((sum, s) => sum + clampDur(s.duration) * price, 0) + voiceCost(needVoice) + lips;
   };
 
   const startAuto = () => {
@@ -256,15 +270,18 @@ export const FilmPanel: React.FC<{
       .filter((s) => s.keyframe && (!s.clip || clipOutdated(s)) && !voicePending(s) && !busy("clip", s.id))
       .forEach((s) => kick(`clip:${s.id}:${s.keyframe}:${clampDur(s.duration)}`, () => genClip(s)));
 
-    // 6) المزيكا والمؤثرات (لو فيه مفتاح ElevenLabs)
+    // 6) حركة الشفايف: بعد الفيديو والصوت، للقطات اللي فيها حد بيتكلم في الكادر
     const clipsReady = p.shots.every((s) => s.keyframe && s.clip && !clipOutdated(s) && !voicePending(s));
+    if (clipsReady) needLip.filter((s) => !busy("lipsync", s.id)).forEach((s) => kick(`lip:${s.id}:${s.clip}:${s.voice}`, () => genLipsync(s)));
+
+    // 7) المزيكا والمؤثرات (لو فيه مفتاح ElevenLabs)
     if (clipsReady && soundOk) {
       if (needMusic && !busy("music", "music")) kick(`music:${p.musicPrompt}`, genMusic);
       needSfx.filter((s) => !busy("sfx", s.id)).forEach((s) => kick(`sfx:${s.id}:${s.sfxPrompt}`, () => genSfx(s)));
     }
-    // 7) خلص؟ صدّر
+    // 8) خلص؟ صدّر
     const soundsDone = !soundOk || (!needMusic && !needSfx.length);
-    const done = clipsReady && soundsDone && !(p.jobs ?? []).length;
+    const done = clipsReady && !needLip.length && soundsDone && !(p.jobs ?? []).length;
     if (done) {
       kick("export", async () => {
         try {
@@ -289,7 +306,9 @@ export const FilmPanel: React.FC<{
           ? "التعليق الصوتي"
           : needClip.length
             ? `الفيديوهات (${p.shots.length - needClip.length}/${p.shots.length})`
-            : soundOk && (needMusic || needSfx.length)
+            : needLip.length
+              ? `حركة الشفايف (${needLip.length})`
+              : soundOk && (needMusic || needSfx.length)
               ? "المزيكا والمؤثرات"
               : "بيصدّر";
 
@@ -334,10 +353,7 @@ export const FilmPanel: React.FC<{
         </div>
       )}
       {status && (!status.claude || !status.fal) && !status.mock && (
-        <div className="hint">
-          حط المفاتيح في ملف <code>.env</code> جنب server.mjs وأعد تشغيل الاستوديو: <code dir="ltr">ANTHROPIC_API_KEY</code> (السيناريو)، <code dir="ltr">FAL_KEY</code> (الصور
-          والفيديو، من fal.ai)، <code dir="ltr">ELEVENLABS_API_KEY</code> (الصوت). شوف <code>.env.example</code>.
-        </div>
+        <KeyHint>محتاج مفاتيح Claude (السيناريو) و fal.ai (الصور والفيديو)، و ElevenLabs لو عايز صوت احترافي.</KeyHint>
       )}
       {autoBox}
       {error && (
@@ -486,6 +502,19 @@ export const FilmPanel: React.FC<{
                   <div className="film-char-body">
                     <input type="text" value={c.name} onChange={(e) => patchChar(c.id, { name: e.target.value })} />
                     <textarea rows={2} dir="ltr" value={c.description} onChange={(e) => patchChar(c.id, { description: e.target.value })} />
+                    {p.voiceProvider === "elevenlabs" && (
+                      <label className="field">
+                        <span>صوته (لما يتكلم في الكادر)</span>
+                        <select value={c.voiceId ?? ""} onChange={(e) => patchChar(c.id, { voiceId: e.target.value })}>
+                          <option value="">نفس صوت الفيلم</option>
+                          {voices.elevenlabs.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <button type="button" className="btn-small btn-ai" onClick={() => genCharacter(c)} disabled={!!running("character", c.id) || !status?.fal}>
                       {running("character", c.id) ? stepOf("character", c.id) : `🖼️ ${c.image ? "ولّد تاني" : "ولّد الصورة"} (~${money(imgCost(1))})`}
                     </button>
@@ -508,7 +537,7 @@ export const FilmPanel: React.FC<{
             )}
             {p.shots.map((s, i) => {
               const open = openShot === s.id;
-              const busy = (["keyframe", "voice", "clip"] as const).map((k) => stepOf(k, s.id)).find(Boolean);
+              const busy = (["keyframe", "voice", "clip", "lipsync"] as const).map((k) => stepOf(k, s.id)).find(Boolean);
               return (
                 <div key={s.id} className={`film-shot ${open ? "open" : ""}`}>
                   <div
@@ -526,6 +555,7 @@ export const FilmPanel: React.FC<{
                       <small>
                         {clampDur(s.duration)}ث · {s.keyframe ? "🖼️✓" : "🖼️–"} {s.voiceLine.trim() ? (s.voice ? "🎙️✓" : "🎙️–") : ""}{" "}
                         {s.clip ? (clipOutdated(s) ? "🎬⚠ محتاج يتعاد" : "🎬✓") : "🎬–"}
+                        {s.speaker && (lipsyncReady(s) ? " 👄✓" : " 👄–")}
                       </small>
                       {busy && <small className="film-busy">⏳ {busy}</small>}
                     </div>
@@ -545,6 +575,19 @@ export const FilmPanel: React.FC<{
                         <span>التعليق الصوتي</span>
                         <textarea rows={2} value={s.voiceLine} onChange={(e) => patchShot(s.id, { voiceLine: e.target.value, voice: "", voiceDuration: 0, words: [] })} />
                       </label>
+                      {p.characters.length > 0 && (
+                        <label className="field">
+                          <span>مين بيقول الكلام ده؟</span>
+                          <select value={s.speaker ?? ""} onChange={(e) => patchShot(s.id, { speaker: e.target.value })}>
+                            <option value="">راوي (صوت من برا الكادر)</option>
+                            {p.characters.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name} بيتكلم في الكادر (شفايفه بتتحرك)
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       <div className="field">
                         <span>صوت الجو أو المؤثر (اختياري)</span>
                         <div className="scene-ai-row">
@@ -617,6 +660,17 @@ export const FilmPanel: React.FC<{
                         <button type="button" className="btn-small btn-ai" onClick={() => genClip(s)} disabled={!s.keyframe || !!running("clip", s.id) || !status?.fal}>
                           🎬 {s.clip ? "فيديو تاني" : "ولّد الفيديو"} (~{money(clipCost([s]))})
                         </button>
+                        {s.speaker && (
+                          <button
+                            type="button"
+                            className="btn-small btn-ai"
+                            onClick={() => genLipsync(s)}
+                            disabled={!s.clip || !s.voice || !!running("lipsync", s.id) || !status?.fal}
+                            title={!s.clip || !s.voice ? "محتاج الفيديو والصوت الأول" : ""}
+                          >
+                            👄 {lipsyncReady(s) ? "حرّك تاني" : "حرّك الشفايف"} (~{money(lipCost([s]))})
+                          </button>
+                        )}
                       </div>
                       <div className="field">
                         <span>أو استخدم صورتك كأول فريم</span>
@@ -703,6 +757,11 @@ export const FilmPanel: React.FC<{
             >
               4. 🎬 ولّد الفيديوهات ({needClip.length}) ~{money(clipCost(needClip))}
             </button>
+            {p.shots.some((s) => s.speaker) && (
+              <button type="button" className="btn-small" disabled={!needLip.length || !status?.fal} onClick={() => bulk("حركة الشفايف", lipCost(needLip), needLip, () => needLip.forEach(genLipsync))}>
+                5. 👄 حركة الشفايف ({needLip.length}) ~{money(lipCost(needLip))}
+              </button>
+            )}
             <div className="hint">
               الأسعار تقريبية ({tier?.label}: ~${tier?.pricePerSecond}/ثانية). سجّل الصوت قبل الفيديو، عشان مدة كل لقطة تتظبط على طول الكلام. وبعد ما الفيديوهات تخلص، صدّر من
               كارت التصدير.
@@ -738,6 +797,7 @@ const planToFilm = (plan: Plan, f: FilmProps): Partial<FilmProps> => {
       voiceLine: s.voiceLine ?? "",
       onScreenText: s.onScreenText ?? "",
       sfxPrompt: s.sfxPrompt ?? "",
+      speaker: s.speaker && ids.has(s.speaker) && s.voiceLine?.trim() ? s.speaker : "",
     })),
   };
 };

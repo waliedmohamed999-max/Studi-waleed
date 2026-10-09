@@ -8,6 +8,7 @@ import { getTransition, transitionTiming, TRANSITION_FRAMES } from "./lib/transi
 import { assetSrc, musicVolume } from "./lib/media";
 import type { Scene } from "./scenes/defs";
 import { sceneRenderers, type Theme } from "./scenes/renderers";
+import { LayersView } from "./scenes/layers";
 
 export type ProjectProps = {
   format: string;
@@ -89,6 +90,7 @@ export const ProjectVideo: React.FC<ProjectProps> = (p) => {
               {i > 0 && presentation && <TransitionSeries.Transition presentation={presentation} timing={transitionTiming} />}
               <TransitionSeries.Sequence durationInFrames={dur}>
                 <Renderer scene={scene} theme={theme} index={i} duration={dur} />
+                <LayersView layers={scene.layers ?? []} fontFamily={font.family} heavy={font.heavy} sceneFrames={dur} />
               </TransitionSeries.Sequence>
             </Fragment>
           );

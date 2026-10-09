@@ -234,6 +234,7 @@ export const FieldInput: React.FC<{ field: Field; value: unknown; onChange: (v: 
       );
     case "image":
     case "audio":
+    case "video":
     case "media":
       return (
         <div className="field">

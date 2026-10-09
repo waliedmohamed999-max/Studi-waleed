@@ -11,7 +11,7 @@ export class SoundError extends Error {}
 
 const call = async (url, body) => {
   const key = process.env.ELEVENLABS_API_KEY;
-  if (!key) throw new SoundError("حط ELEVENLABS_API_KEY في ملف .env عشان توليد المزيكا والمؤثرات");
+  if (!key) throw new SoundError("حط مفتاح ElevenLabs من ⚙️ الإعدادات عشان توليد المزيكا والمؤثرات");
   const r = await fetch(url, { method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.status === 401) throw new SoundError("مفتاح ElevenLabs غلط");
   if (!r.ok) {

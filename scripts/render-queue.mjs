@@ -1,5 +1,6 @@
 // طابور التصدير (المرحلة 6): دفعات فيها فيديو أو أكتر، بتتصدر واحد ورا التاني
 // الدفعة الواحدة بتعمل bundle مرة واحدة بس، فالـ 100 فيديو أسرع بكتير من 100 تصدير منفصل
+// الطابور متحفظ في ملف (out/.queue.json): لو السيرفر اتقفل، بيكمل من مكان ما وقف أول ما يشتغل تاني
 import fs from "node:fs";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
@@ -29,10 +30,37 @@ export const safeName = (s, fallback = "video") =>
     .trim()
     .slice(0, 60) || fallback;
 
-export const createQueue = ({ root, publicDir, outDir }) => {
+export const createQueue = ({ root, publicDir, outDir, stateFile = path.join(outDir, ".queue.json"), autoStart = true }) => {
   const batches = [];
   let working = false;
   let current = null; // { batch, item, cancel }
+
+  // ===== الحفظ في ملف =====
+  // بنكتب في ملف مؤقت وبعدين نبدله، عشان لو الجهاز فصل وقت الكتابة الملف القديم ميبوظش
+  const save = () => {
+    try {
+      const data = batches.map(({ serveUrl, ...b }) => b);
+      fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(data));
+      fs.renameSync(`${stateFile}.tmp`, stateFile);
+    } catch (e) {
+      console.error("queue save:", e.message);
+    }
+  };
+
+  // ===== الرجوع بعد ما السيرفر يتقفل =====
+  // الفيديو اللي كان بيتصدر ساعتها بيبدأ من الأول، واللي كانوا مستنيين بيكملوا عادي
+  try {
+    if (fs.existsSync(stateFile)) {
+      for (const b of JSON.parse(fs.readFileSync(stateFile, "utf8"))) {
+        for (const i of b.items) {
+          if (i.status === "rendering") Object.assign(i, { status: "pending", progress: 0 });
+        }
+        batches.push({ ...b, serveUrl: null });
+      }
+    }
+  } catch (e) {
+    console.error("queue load:", e.message);
+  }
 
   const publicItem = (i) => ({ name: i.name, status: i.status, progress: i.progress, file: i.file, thumb: i.thumb, error: i.error });
   const publicBatch = (b) => ({
@@ -62,6 +90,7 @@ export const createQueue = ({ root, publicDir, outDir }) => {
         if (!batch) break;
         const item = batch.items.find((i) => i.status === "pending");
         item.status = "rendering";
+        save();
         try {
           // bundle مرة واحدة للدفعة كلها
           batch.serveUrl ??= await bundle({ entryPoint: path.join(root, "src", "index.ts"), publicDir });
@@ -117,6 +146,7 @@ export const createQueue = ({ root, publicDir, outDir }) => {
           if (!batch.canceled) console.error(e);
         } finally {
           current = null;
+          save();
           // لو الدفعة اتلغت قبل ما أي فيديو يخلص، منسيبش فولدر فاضي
           const dir = path.join(outDir, batch.folder);
           if (batch.canceled && batch.folder && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
@@ -126,6 +156,11 @@ export const createQueue = ({ root, publicDir, outDir }) => {
       working = false;
     }
   };
+
+  if (autoStart && batches.some((b) => !b.canceled && b.items.some((i) => i.status === "pending"))) {
+    console.log("بيكمل التصدير اللي كان شغال قبل ما السيرفر يتقفل");
+    work();
+  }
 
   return {
     // items: [{ name, videoId, props }]
@@ -144,7 +179,11 @@ export const createQueue = ({ root, publicDir, outDir }) => {
         items: items.map((it, index) => ({ ...it, index, status: "pending", progress: 0, file: null, thumb: null, error: null })),
       };
       batches.unshift(batch);
-      if (batches.length > 30) batches.splice(30); // بنحتفظ بآخر 30 دفعة بس في الذاكرة
+      // بنحتفظ بآخر 30 دفعة بس (من غير ما نمسح دفعة لسه فيها فيديوهات مستنية)
+      for (let i = batches.length - 1; batches.length > 30 && i >= 0; i--) {
+        if (!batches[i].items.some((x) => x.status === "pending" || x.status === "rendering")) batches.splice(i, 1);
+      }
+      save();
       work();
       return publicBatch(batch);
     },
@@ -159,6 +198,7 @@ export const createQueue = ({ root, publicDir, outDir }) => {
       b.canceled = true;
       for (const i of b.items) if (i.status === "pending") i.status = "canceled";
       if (current?.batch === b) current.cancel();
+      save();
       return true;
     },
     folderOf: (id) => {

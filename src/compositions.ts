@@ -222,6 +222,11 @@ const autoEditDefaults: AutoEditProps = {
   progressBar: "on",
   music: "",
   musicVolume: 12,
+  faceTrack: [],
+  mediaWidth: 0,
+  mediaHeight: 0,
+  faceFollow: "on",
+  brolls: [],
 };
 
 export const videos: VideoDef[] = [
@@ -250,6 +255,7 @@ export const videos: VideoDef[] = [
         ],
         group: "الحركة",
       },
+      { key: "faceFollow", label: "الكادر يتبع الوش (بعد تتبع الوش)", type: "select", options: onOff, group: "الحركة" },
       { key: "showHook", label: "العنوان الشادد", type: "select", options: onOff, group: "الحركة" },
       { key: "progressBar", label: "شريط التقدم", type: "select", options: onOff, group: "الحركة" },
       { key: "captions", label: "الكابشن", type: "select", options: onOff, group: "الكابشن" },

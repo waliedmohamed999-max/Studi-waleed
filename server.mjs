@@ -12,11 +12,16 @@ import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
 import { generateSound, SoundError } from "./scripts/sound.mjs";
+import { createKeyStore } from "./scripts/keys.mjs";
+import { createBroll, BrollError } from "./scripts/broll.mjs";
+import { tryRemove } from "./scripts/fsutil.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-// مفاتيح الخدمات الخارجية (زي ELEVENLABS_API_KEY) بتتحط في ملف .env جنب السيرفر
+// مفاتيح الخدمات الخارجية بتتحط من شاشة "الإعدادات" في الاستوديو، وبتتحفظ في ملف .env جنب السيرفر
+// (MONTAG_ENV_FILE للاختبارات بس، عشان متلمسش مفاتيحك الحقيقية)
+const envFile = process.env.MONTAG_ENV_FILE || path.join(root, ".env");
 try {
-  process.loadEnvFile(path.join(root, ".env"));
+  process.loadEnvFile(envFile);
 } catch {}
 const outDir = path.join(root, "out");
 const publicDir = path.join(root, "public");
@@ -26,7 +31,18 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const app = express();
+
+// السيرفر بيقبل طلبات تعديل من الاستوديو بس (مش من أي موقع تاني مفتوح في المتصفح)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (req.method !== "GET" && origin && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
+    return res.status(403).json({ error: "الطلب ده مش جاي من الاستوديو" });
+  }
+  next();
+});
 app.use("/out", express.static(outDir));
+// ملفات MediaPipe (تتبع الوش في المتصفح) من node_modules
+app.use("/api/vendor/mediapipe", express.static(path.join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm")));
 
 // ===== رفع الملفات (صور ولوجو ومزيكا وفيديو) =====
 const kinds = {
@@ -71,7 +87,7 @@ app.post("/api/upload", async (req, res) => {
   try {
     await pipeline(req, fs.createWriteStream(file));
   } catch {
-    fs.rmSync(file, { force: true });
+    tryRemove(file);
     return res.status(500).json({ error: "الرفع اتقطع" });
   }
   const kind = kindOf(name);
@@ -102,6 +118,19 @@ app.get("/api/assets", (_req, res) => {
 });
 
 app.use(express.json({ limit: "5mb" }));
+
+// ===== الإعدادات: مفاتيح الخدمات =====
+const keyStore = createKeyStore({ envFile });
+
+app.get("/api/settings", (_req, res) => res.json(keyStore.list()));
+app.put("/api/settings", (req, res) => {
+  try {
+    res.json(keyStore.save(req.body ?? {}));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.post("/api/settings/test/:id", async (req, res) => res.json(await keyStore.test(req.params.id)));
 
 // ===== المشاريع (كل مشروع ملف JSON في projects/) =====
 const projectsDir = path.join(root, "projects");
@@ -224,9 +253,9 @@ app.post("/api/tts", async (req, res) => {
   try {
     let rel;
     if (provider === "elevenlabs") {
-      // ElevenLabs: أصوات عربي طبيعية جدًا، بس محتاج مفتاح API في ملف .env
+      // ElevenLabs: أصوات عربي طبيعية جدًا، بس محتاج مفتاح (من الإعدادات)
       const key = process.env.ELEVENLABS_API_KEY;
-      if (!key) return res.status(400).json({ error: "حط ELEVENLABS_API_KEY في ملف .env جنب server.mjs" });
+      if (!key) return res.status(400).json({ error: "حط مفتاح ElevenLabs من ⚙️ الإعدادات" });
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`, {
         method: "POST",
         headers: { "xi-api-key": key, "Content-Type": "application/json" },
@@ -243,7 +272,7 @@ app.post("/api/tts", async (req, res) => {
         await runTts(["-TextFile", txt, "-Out", path.join(publicDir, rel), "-Voice", String(voice), "-Rate", String(Number(rate) || 1)]);
       } finally {
         // الويندوز ساعات بيفضل ماسك الملف لحظة بعد ما البرنامج يقفل
-        fs.rmSync(txt, { force: true, maxRetries: 5, retryDelay: 200 });
+        tryRemove(txt);
       }
     }
     res.json({ path: rel, duration: await mediaDuration(path.join(publicDir, rel)) });
@@ -263,7 +292,7 @@ const readOptions = (o = {}) => {
 };
 
 const aiRoute = (handler) => async (req, res) => {
-  if (!aiStatus().available) return res.status(400).json({ error: "حط ANTHROPIC_API_KEY في ملف .env جنب server.mjs، وبعدين أعد تشغيل الاستوديو" });
+  if (!aiStatus().available) return res.status(400).json({ error: "حط مفتاح Claude من ⚙️ الإعدادات" });
   try {
     res.json(await handler(req.body ?? {}));
   } catch (e) {
@@ -306,7 +335,7 @@ app.post("/api/sound/generate", (req, res) => {
   const b = req.body ?? {};
   const kind = b.kind === "sfx" ? "sfx" : "music";
   if (!process.env.ELEVENLABS_API_KEY && process.env.AI_MOCK !== "1") {
-    return res.status(400).json({ error: "حط ELEVENLABS_API_KEY في ملف .env عشان توليد المزيكا والمؤثرات" });
+    return res.status(400).json({ error: "حط مفتاح ElevenLabs من ⚙️ الإعدادات عشان توليد المزيكا والمؤثرات" });
   }
   startFilmJob(res, async (step) => {
     step(kind === "music" ? "بيألّف المزيكا" : "بيعمل المؤثر");
@@ -324,7 +353,7 @@ app.post("/api/audio/clean", (req, res) => {
   const strength = Math.min(1, Math.max(0, Number(req.body?.strength ?? 0.6)));
   startFilmJob(res, async (step) => {
     const name = `clean-${Date.now().toString(36)}.wav`;
-    await cleanAudio(file, path.join(uploadsDir, name), { strength, onProgress: step });
+    await cleanAudio(file, path.join(uploadsDir, name), { strength, mode: req.body?.mode === "classic" ? "classic" : "ai", polish: req.body?.polish !== false, onProgress: step });
     return { path: `uploads/${name}` };
   });
 });
@@ -367,6 +396,7 @@ app.post(
       cuts: (r.cuts ?? []).map((c) => ({ ...range(c.fromWord, c.toWord), reason: String(c.reason ?? ""), enabled: true })),
       emphasis: (r.emphasis ?? []).map((e) => range(e.fromWord, e.toWord)),
       highlights: (r.highlights ?? []).map((h) => ({ title: String(h.title ?? ""), hook: String(h.hook ?? ""), ...range(h.fromWord, h.toWord) })),
+      broll: (r.broll ?? []).map((b) => ({ query: String(b.query ?? "").slice(0, 100), description: String(b.description ?? "").slice(0, 200), ...range(b.fromWord, b.toWord) })),
     };
   }),
 );
@@ -418,6 +448,7 @@ app.get("/api/film/status", (_req, res) =>
     claude: aiStatus().available,
     tiers: Object.fromEntries(Object.entries(MODELS.video).map(([k, v]) => [k, { label: v.label, pricePerSecond: v.pricePerSecond }])),
     imagePrice: MODELS.image.pricePerImage,
+    lipsyncPricePerSecond: MODELS.lipsync.pricePerSecond,
     voiceModels: MODELS.voice.models,
     voicePricePer1kChars: MODELS.voice.pricePer1kChars,
     clipSeconds: MODELS.clipSeconds,
@@ -441,7 +472,7 @@ app.get("/api/film/job/:id", (req, res) => {
 });
 
 app.post("/api/film/plan", (req, res) => {
-  if (!aiStatus().available) return res.status(400).json({ error: "محتاج مفتاح Claude (ANTHROPIC_API_KEY في .env) عشان يكتب السيناريو" });
+  if (!aiStatus().available) return res.status(400).json({ error: "محتاج مفتاح Claude (من ⚙️ الإعدادات) عشان يكتب السيناريو" });
   const b = req.body ?? {};
   const uploads = (Array.isArray(b.uploads) ? b.uploads : []).slice(0, 8).map((u) => ({ path: String(u.path ?? ""), note: clip(u.note, 200) }));
   startFilmJob(res, async (step) => {
@@ -462,7 +493,7 @@ app.post("/api/film/plan", (req, res) => {
 
 const needFal = (res) => {
   if (!filmStatus().fal) {
-    res.status(400).json({ error: "حط FAL_KEY في ملف .env جنب server.mjs، وبعدين أعد تشغيل الاستوديو" });
+    res.status(400).json({ error: "حط مفتاح fal.ai من ⚙️ الإعدادات" });
     return true;
   }
   return false;
@@ -502,6 +533,33 @@ app.post("/api/film/clip", (req, res) => {
   if (needFal(res)) return;
   const b = req.body ?? {};
   startFilmJob(res, (step) => film.clip({ projectId: String(b.projectId), shot: b.shot, quality: String(b.quality), style: clip(b.style, 1500), onProgress: step }));
+});
+
+app.post("/api/film/lipsync", (req, res) => {
+  if (needFal(res)) return;
+  const b = req.body ?? {};
+  startFilmJob(res, (step) => film.lipsync({ projectId: String(b.projectId), shot: b.shot ?? {}, onProgress: step }));
+});
+
+// ===== لقطات B-roll (Pexels أو صورة متولدة) =====
+const broll = createBroll({ publicDir, film });
+app.post("/api/broll/fetch", (req, res) => {
+  const b = req.body ?? {};
+  startFilmJob(res, async (step) => {
+    try {
+      return await broll.fetchBroll({
+        query: clip(b.query, 100),
+        description: clip(b.description, 200),
+        format: clip(b.format, 20),
+        seconds: Math.min(30, Math.max(1, Number(b.seconds) || 3)),
+        skip: Math.max(0, Math.floor(Number(b.skip) || 0)),
+        source: ["stock", "ai"].includes(b.source) ? b.source : "auto",
+        onProgress: step,
+      });
+    } catch (e) {
+      throw e instanceof BrollError ? new FilmError(e.message) : e;
+    }
+  });
 });
 
 // ===== هوية البراند (متحفظة في brand.json) =====
@@ -562,4 +620,5 @@ app.get("/api/exports", (_req, res) => {
 });
 
 const port = Number(process.env.API_PORT ?? 4001);
-app.listen(port, () => console.log(`سيرفر التصدير شغال على http://localhost:${port}`));
+// على 127.0.0.1 بس: السيرفر بيشتغل لجهازك انت، ومحدش على نفس الشبكة يقدر يوصله
+app.listen(port, "127.0.0.1", () => console.log(`سيرفر التصدير شغال على http://localhost:${port}`));

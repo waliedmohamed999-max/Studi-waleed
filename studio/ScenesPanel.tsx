@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { commonSceneFields, newScene, sceneDefs, sceneTypes, uid, type Scene, type SceneType } from "../src/scenes/defs";
 import { FieldInput } from "./fields";
+import { LayersEditor } from "./LayersEditor";
 import { callAi, describeScenes, dialects, fromAiScene, toAiScene, useAiStatus, type Dialect } from "./ai";
 
 // ===== "حسّن المشهد ده" بالذكاء الاصطناعي =====
@@ -23,7 +24,7 @@ const SceneAi: React.FC<{ scene: Scene; scenes: Scene[]; onReplace: (s: Scene) =
         context: describeScenes(scenes),
         dialect,
       });
-      onReplace(fromAiScene(raw, { id: scene.id, bgImage: scene.bgImage }));
+      onReplace(fromAiScene(raw, { id: scene.id, bgImage: scene.bgImage, layers: scene.layers }));
       setInstruction("");
     } catch (e) {
       setError((e as Error).message);
@@ -78,7 +79,10 @@ export const ScenesPanel: React.FC<{
   selectedId: string | null;
   onSelect: (id: string) => void;
   onChange: (scenes: Scene[]) => void;
-}> = ({ scenes, selectedId, onSelect, onChange }) => {
+  accent: string;
+  selectedLayerId: string | null;
+  onSelectLayer: (id: string | null) => void;
+}> = ({ scenes, selectedId, onSelect, onChange, accent, selectedLayerId, onSelectLayer }) => {
   const [adding, setAdding] = useState(false);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -86,6 +90,20 @@ export const ScenesPanel: React.FC<{
   const selectedIndex = scenes.findIndex((s) => s.id === selectedId);
 
   const update = (id: string, patch: Partial<Scene>) => onChange(scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+
+  // لما تختار فيديو لمشهد، مدة المشهد بتتظبط على طول الفيديو (لحد 15 ثانية)
+  const setField = (s: Scene, key: string, v: unknown) => {
+    update(s.id, { [key]: v });
+    if (key === "video" && typeof v === "string" && v) {
+      fetch(`/api/media-info?path=${encodeURIComponent(v)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((info) => {
+          const left = (info?.duration ?? 0) - (Number(s.trimStart) || 0);
+          if (left > 0.5) update(s.id, { [key]: v, duration: Math.min(15, Math.max(1, Math.floor(left * 2) / 2)) });
+        })
+        .catch(() => {});
+    }
+  };
 
   const add = (type: SceneType) => {
     const scene = newScene(type);
@@ -113,7 +131,7 @@ export const ScenesPanel: React.FC<{
 
   // تغيير نوع المشهد: بنحتفظ بالمدة والحركة والخلفية، والباقي بياخد القيم الافتراضية للنوع الجديد
   const changeType = (s: Scene, type: SceneType) => {
-    const fresh = newScene(type, { id: s.id, duration: s.duration, animation: s.animation, bgImage: s.bgImage });
+    const fresh = newScene(type, { id: s.id, duration: s.duration, animation: s.animation, bgImage: s.bgImage, layers: s.layers });
     onChange(scenes.map((x) => (x.id === s.id ? fresh : x)));
   };
 
@@ -184,8 +202,16 @@ export const ScenesPanel: React.FC<{
                   </select>
                 </label>
                 {[...def.fields, ...commonSceneFields(s.type)].map((f) => (
-                  <FieldInput key={f.key} field={f} value={s[f.key] ?? ""} onChange={(v) => update(s.id, { [f.key]: v })} />
+                  <FieldInput key={f.key} field={f} value={s[f.key] ?? ""} onChange={(v) => setField(s, f.key, v)} />
                 ))}
+                <LayersEditor
+                  layers={s.layers ?? []}
+                  sceneSeconds={Number(s.duration) || 3}
+                  accent={accent}
+                  selectedId={selectedLayerId}
+                  onSelect={onSelectLayer}
+                  onChange={(layers) => update(s.id, { layers })}
+                />
                 <SceneAi scene={s} scenes={scenes} onReplace={(next) => onChange(scenes.map((x) => (x.id === s.id ? next : x)))} />
               </div>
             )}

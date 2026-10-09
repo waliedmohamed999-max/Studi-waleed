@@ -1,5 +1,5 @@
 // شكل كل نوع مشهد على الشاشة
-import { AbsoluteFill, Easing, Img, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { AnimatedText } from "../lib/AnimatedText";
 import { assetSrc, KenBurnsImage } from "../lib/media";
 import type { Scene, SceneType } from "./defs";
@@ -51,10 +51,24 @@ const SceneFrame: React.FC<SceneProps & { children: React.ReactNode; align?: "ce
   const flip = index % 2 === 1;
   const angle = 135 + index * 40 + interpolate(frame, [0, duration], [0, 20]);
   const bg = str(scene.type === "imageText" ? scene.image : scene.bgImage);
+  const video = scene.type === "video" ? str(scene.video) : "";
+  const { fps } = useVideoConfig();
 
   return (
     <AbsoluteFill style={{ background: `linear-gradient(${angle}deg, ${flip ? theme.secondary : theme.primary}, ${flip ? theme.primary : theme.secondary})` }}>
-      {bg && (
+      {video && (
+        <>
+          <OffthreadVideo
+            src={assetSrc(video)}
+            trimBefore={Math.round(Math.max(0, Number(scene.trimStart) || 0) * fps)}
+            muted={!Number(scene.videoVolume)}
+            volume={Math.max(0, Math.min(100, Number(scene.videoVolume) || 0)) / 100}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+          {str(scene.text) && <AbsoluteFill style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.25) 35%, transparent 60%)" }} />}
+        </>
+      )}
+      {bg && !video && (
         <>
           <KenBurnsImage src={bg} duration={duration} index={index} />
           <AbsoluteFill
@@ -150,6 +164,26 @@ const ImageTextScene: React.FC<SceneProps> = (p) => {
         style={{ fontFamily: theme.fontFamily, fontWeight: theme.heavy, fontSize: fit(text, unit * 0.095, width, height), lineHeight: 1.35, color: theme.textColor, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
       />
       <div style={{ height: unit * 0.012, width: unit * 0.25 * bar, background: theme.accent, borderRadius: 99 }} />
+    </SceneFrame>
+  );
+};
+
+// ===== فيديو + كلام =====
+const VideoScene: React.FC<SceneProps> = (p) => {
+  const { width, height, unit } = useUnit();
+  const { scene, theme, duration } = p;
+  const text = str(scene.text);
+  return (
+    <SceneFrame {...p} align="bottom">
+      {text && (
+        <AnimatedText
+          text={text}
+          animation={anim(scene, theme)}
+          duration={duration}
+          delay={6}
+          style={{ fontFamily: theme.fontFamily, fontWeight: theme.heavy, fontSize: fit(text, unit * 0.085, width, height), lineHeight: 1.35, color: theme.textColor, textShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
+        />
+      )}
     </SceneFrame>
   );
 };
@@ -339,6 +373,7 @@ export const sceneRenderers: Record<SceneType, React.FC<SceneProps>> = {
   title: TitleScene,
   text: TextScene,
   imageText: ImageTextScene,
+  video: VideoScene,
   bullets: BulletsScene,
   stat: StatScene,
   quote: QuoteScene,

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createTikTokStyleCaptions, parseSrt, serializeSrt, type Caption } from "@remotion/captions";
 import { callAi, dialects, useAiStatus, type AiScript, type Dialect } from "./ai";
+import { KeyHint, useKeysVersion } from "./settings";
 import { CleanAudio } from "./CleanAudio";
 
 // ===== Claude بيكتب سكريبت التعليق الصوتي =====
@@ -149,6 +150,7 @@ export const CaptionsPanel: React.FC<{
   const [rate, setRate] = useState(1);
   const [autoCaption, setAutoCaption] = useState(true);
 
+  const keys = useKeysVersion();
   useEffect(() => {
     fetch("/api/tts/voices")
       .then((r) => r.json())
@@ -159,7 +161,7 @@ export const CaptionsPanel: React.FC<{
         if (ar) setVoice(ar.id);
       })
       .catch(() => {});
-  }, []);
+  }, [keys]);
 
   const generateVoice = async () => {
     setError(null);
@@ -271,10 +273,7 @@ export const CaptionsPanel: React.FC<{
           🔊 ولّد الصوت
         </button>
         {!voices?.elevenlabs && (
-          <div className="hint">
-            للأصوات الأطبع (مصري وخليجي): اعمل حساب على ElevenLabs، وحط <code dir="ltr">ELEVENLABS_API_KEY=...</code> في ملف <code>.env</code> جنب
-            server.mjs، وبعدين أعد تشغيل الاستوديو.
-          </div>
+          <KeyHint>للأصوات الأطبع (مصري وخليجي): حط مفتاح ElevenLabs.</KeyHint>
         )}
       </details>
 

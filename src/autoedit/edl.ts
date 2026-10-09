@@ -197,3 +197,18 @@ export const remapWords = (input: EdlInput, segments: Segment[]): Caption[] => {
   });
   return result;
 };
+
+// فترة في الفيديو الأصلي ← فترتها بعد المونتاج (من أول جزء اتساب منها لآخر جزء)، أو null لو اتشالت كلها
+export const rangeToOut = (r: TimeRange, segments: Segment[]): TimeRange | null => {
+  let from = Infinity;
+  let to = -Infinity;
+  for (const s of segments) {
+    const a = Math.max(r.fromMs, s.fromMs);
+    const b = Math.min(r.toMs, s.toMs);
+    if (b > a) {
+      from = Math.min(from, s.outMs + (a - s.fromMs));
+      to = Math.max(to, s.outMs + (b - s.fromMs));
+    }
+  }
+  return to > from ? { fromMs: from, toMs: to } : null;
+};

@@ -1,5 +1,6 @@
 // أداة "الصوتيات": توليد مزيكا أو مؤثر صوتي بالوصف، وتستخدمه في أي فيديو
 import { useEffect, useState } from "react";
+import { KeyHint, useKeysVersion } from "./settings";
 
 type Generated = { kind: "music" | "sfx"; prompt: string; path: string };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -31,12 +32,13 @@ export const SoundTool: React.FC<{ canSetMusic: boolean; onUseMusic: (path: stri
   const [list, setList] = useState<Generated[]>([]);
   const [status, setStatus] = useState<{ elevenlabs: boolean; mock: boolean } | null>(null);
 
+  const keys = useKeysVersion();
   useEffect(() => {
     fetch("/api/film/status")
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => {});
-  }, []);
+  }, [keys]);
 
   const switchKind = (k: "music" | "sfx") => {
     setKind(k);
@@ -111,7 +113,7 @@ export const SoundTool: React.FC<{ canSetMusic: boolean; onUseMusic: (path: stri
       <button type="button" className="btn-primary" onClick={generate} disabled={!available || !!busy || !prompt.trim()}>
         {busy ? `⏳ ${busy}` : kind === "music" ? "🎵 ألّف المزيكا" : "🔊 اعمل المؤثر"}
       </button>
-      {status && !available && <div className="hint">محتاج مفتاح ElevenLabs في ملف .env (وبيستهلك من رصيدك هناك).</div>}
+      {status && !available && <KeyHint>محتاج مفتاح ElevenLabs (وبيستهلك من رصيدك هناك).</KeyHint>}
       {status?.mock && <div className="hint">وضع تجربة: بيرجع ملف تجريبي.</div>}
       {error && <div className="error">{error}</div>}
 

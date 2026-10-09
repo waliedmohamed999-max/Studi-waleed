@@ -1,10 +1,12 @@
-// زرار "نضّف الصوت": بيشيل الدوشة والهمهمة ويظبط العلو، وبيحط النسخة النضيفة مكان الصوت الأصلي
+// زرار "نضّف الصوت": بيشيل الدوشة (بالذكاء الاصطناعي أو الطريقة القديمة) ويحسن الصوت ويظبط العلو، وبيحط النسخة النضيفة مكان الصوت الأصلي
 import { useState } from "react";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export const CleanAudio: React.FC<{ media: string; clean: string; onChange: (path: string) => void }> = ({ media, clean, onChange }) => {
-  const [strength, setStrength] = useState(0.6);
+  // "ai:0.6" = ذكاء اصطناعي، "ai:0.85" = ذكاء اصطناعي + شيل بواقي الدوشة الثابتة، "classic:x" = الطريقة القديمة
+  const [choice, setChoice] = useState("ai:0.6");
+  const [polish, setPolish] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -12,7 +14,7 @@ export const CleanAudio: React.FC<{ media: string; clean: string; onChange: (pat
     setError(null);
     setBusy("بيبدأ…");
     try {
-      const r = await fetch("/api/audio/clean", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: media, strength }) });
+      const r = await fetch("/api/audio/clean", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: media, mode: choice.split(":")[0], strength: Number(choice.split(":")[1]), polish }) });
       const { jobId, error: err } = await r.json();
       if (!jobId) throw new Error(err);
       for (;;) {
@@ -34,17 +36,21 @@ export const CleanAudio: React.FC<{ media: string; clean: string; onChange: (pat
       <div className="row-2">
         <label className="field">
           <span>تنضيف الدوشة</span>
-          <select value={strength} onChange={(e) => setStrength(Number(e.target.value))}>
-            <option value={0.35}>خفيف (مكان هادي)</option>
-            <option value={0.6}>متوسط</option>
-            <option value={0.85}>قوي (تكييف أو شارع)</option>
-            <option value={0}>من غير تنضيف (علو بس)</option>
+          <select value={choice} onChange={(e) => setChoice(e.target.value)}>
+            <option value="ai:0.6">ذكي بالـ AI (أي دوشة: شارع، ناس، مروحة)</option>
+            <option value="ai:0.85">ذكي + قوي (دوشة عالية جدًا)</option>
+            <option value="classic:0.6">عادي (دوشة ثابتة زي التكييف)</option>
+            <option value="classic:0">من غير تنضيف (علو بس)</option>
           </select>
         </label>
         <button type="button" className="btn-small btn-ai" onClick={run} disabled={!media || !!busy}>
           🎧 {busy ? busy : clean ? "نضّف تاني" : "نضّف الصوت"}
         </button>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={polish} onChange={(e) => setPolish(e.target.checked)} />
+        <span>لمسة استوديو (وضوح أكتر وصوت مليان زي الإذاعة)</span>
+      </label>
       {clean && (
         <div className="clean-on">
           <span>✓ بيستخدم الصوت النضيف</span>

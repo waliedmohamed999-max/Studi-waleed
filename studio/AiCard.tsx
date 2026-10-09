@@ -1,13 +1,9 @@
 // كارت "فيديو من فكرة": تكتب الفكرة وClaude يعمل الفيديو كله (المشاهد والألوان والخط والحركة)
 import { useState } from "react";
+import { KeyHint } from "./settings";
 import { aiVideoToProps, callAi, dialects, useAiStatus, type AiVideo, type Dialect } from "./ai";
 
-export const AiHint: React.FC = () => (
-  <div className="hint">
-    محتاج مفتاح Claude: اعمل مفتاح من <span dir="ltr">platform.claude.com</span>، وحط <code dir="ltr">ANTHROPIC_API_KEY=...</code> في ملف <code>.env</code>{" "}
-    جنب server.mjs، وبعدين أعد تشغيل الاستوديو.
-  </div>
-);
+export const AiHint: React.FC = () => <KeyHint>محتاج مفتاح Claude.</KeyHint>;
 
 export const AiCard: React.FC<{ onCreate: (name: string, props: Record<string, unknown>) => void }> = ({ onCreate }) => {
   const status = useAiStatus();

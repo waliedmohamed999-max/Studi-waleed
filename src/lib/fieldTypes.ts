@@ -13,6 +13,7 @@ export type Field =
   | (FieldBase & { type: "number"; min: number; max: number; step: number; suffix?: string; box?: boolean })
   | (FieldBase & { type: "image" }) // مسار صورة في public/
   | (FieldBase & { type: "audio" }) // مسار ملف صوت في public/
+  | (FieldBase & { type: "video" }) // مسار فيديو في public/
   | (FieldBase & { type: "slides" }) // قايمة مشاهد: صورة + كلام
   | (FieldBase & { type: "scenes" }) // محرر المشاهد الكامل (المرحلة 3)
   | (FieldBase & { type: "media" }) // فيديو أو ملف صوت (المرحلة 4)

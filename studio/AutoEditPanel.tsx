@@ -1,11 +1,14 @@
 // لوحة "المونتاج الأوتوماتيك": ارفع ← فرّغ ← حلّل ← راجع ← صدّر (الفيديو كامل أو مقاطع ريلز)
 import { useEffect, useMemo, useState } from "react";
 import type { Caption } from "@remotion/captions";
-import { buildSegments, refineWords, sourceToOut, totalMs, wordDecisions, type CutRange, type Highlight, type TimeRange } from "../src/autoedit/edl";
-import { edlInput, type AutoEditProps } from "../src/AutoEditVideo";
+import { buildSegments, outToSource, rangeToOut, refineWords, resolveRange, sourceToOut, totalMs, wordDecisions, type CutRange, type Highlight, type TimeRange } from "../src/autoedit/edl";
+import { edlInput, type AutoEditProps, type Broll } from "../src/AutoEditVideo";
+import { FaceTrack } from "./FaceTrack";
+import { BrollPanel, newBroll } from "./BrollPanel";
 import { AssetPicker } from "./fields";
 import { sendToQueue, type ExportSettings } from "./ExportCard";
 import { useAiStatus } from "./ai";
+import { KeyHint } from "./settings";
 import { CleanAudio } from "./CleanAudio";
 
 type Props = Record<string, unknown>;
@@ -20,9 +23,10 @@ export const AutoEditPanel: React.FC<{
   updateProps: (patch: Props | ((prev: Props) => Props)) => void;
   projectName: string;
   fps: number;
+  frame: number;
   seek: (frame: number) => void;
   exportSettings: ExportSettings;
-}> = ({ props, updateProps, projectName, fps, seek, exportSettings }) => {
+}> = ({ props, updateProps, projectName, fps, frame, seek, exportSettings }) => {
   const p = props as unknown as AutoEditProps;
   const ai = useAiStatus();
   const [busy, setBusy] = useState<string | null>(null);
@@ -98,7 +102,10 @@ export const AutoEditPanel: React.FC<{
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error);
-      updateProps({ cuts: data.cuts, emphasis: data.emphasis, highlights: data.highlights, hookTitle: data.hookTitle || p.hookTitle, range: null });
+      // لقطات الـ B-roll: بنحتفظ باللي جبتها قبل كده، ونضيف اقتراحات Claude الجديدة
+      const kept = (p.brolls ?? []).filter((b) => b.src);
+      const brolls = [...kept, ...(data.broll ?? []).map((b: Broll) => newBroll(b))];
+      updateProps({ cuts: data.cuts, emphasis: data.emphasis, highlights: data.highlights, hookTitle: data.hookTitle || p.hookTitle, range: null, brolls });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -152,6 +159,9 @@ export const AutoEditPanel: React.FC<{
         />
         <div className="hint">صوّر نفسك وانت بتتكلم عادي، حتى لو غلطت أو سكتّ أو عدت جملة. الاستوديو هيشيل ده كله.</div>
         {p.media && <CleanAudio media={p.media} clean={p.cleanAudio} onChange={(v) => updateProps({ cleanAudio: v })} />}
+        {p.media && (
+          <FaceTrack media={p.media} track={p.faceTrack ?? []} onTrack={(faceTrack, size) => updateProps({ faceTrack, mediaWidth: size.width, mediaHeight: size.height })} />
+        )}
       </div>
 
       {/* ② التفريغ */}
@@ -193,9 +203,27 @@ export const AutoEditPanel: React.FC<{
           <button type="button" className="btn-small btn-ai" onClick={analyze} disabled={!!busy || !ai?.available}>
             ✨ {p.cuts.length || p.highlights.length ? "حلّل تاني" : "حلّل الفيديو"}
           </button>
-          {ai && !ai.available && <div className="hint">محتاج مفتاح Claude (ANTHROPIC_API_KEY في .env).</div>}
+          {ai && !ai.available && <KeyHint>محتاج مفتاح Claude.</KeyHint>}
 
 
+        </div>
+      )}
+
+      {/* لقطات B-roll */}
+      {(p.words.length > 0 || (p.brolls ?? []).length > 0) && (
+        <div className="ae-step">
+          <span className="ae-step-title">🎞️ لقطات B-roll ({(p.brolls ?? []).filter((b) => b.enabled && b.src).length})</span>
+          <div className="hint">لقطات بتظهر فوق كلامك وهو مكمل، عشان توضّح اللي بتقوله. Claude بيقترح أماكنها لما تحلل الفيديو، أو ضيف بنفسك عند المؤشر.</div>
+          <BrollPanel
+            brolls={p.brolls ?? []}
+            format={p.format}
+            onChange={(fn) => updateProps((prev) => ({ ...prev, brolls: fn(((prev.brolls as Broll[]) ?? []).map((b) => b)) }))}
+            onSeek={(b) => {
+              const out = rangeToOut(resolveRange(b, words), segments);
+              if (out) seek(Math.round((out.fromMs / 1000) * fps) + 1);
+            }}
+            playheadSourceMs={outToSource((frame / fps) * 1000, segments)}
+          />
         </div>
       )}
 

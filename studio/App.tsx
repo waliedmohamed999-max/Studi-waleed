@@ -21,7 +21,7 @@ import { AutoEditPanel } from "./AutoEditPanel";
 import { SoundTool } from "./SoundTool";
 import { PublishTool } from "./PublishTool";
 import { platforms, type Platform, type PlatformId } from "./platforms";
-import { autoEditSegments, edlInput, type AutoEditProps } from "../src/AutoEditVideo";
+import { autoEditSegments, brollSpans, edlInput, type AutoEditProps } from "../src/AutoEditVideo";
 import { outToSource, remapWords } from "../src/autoedit/edl";
 import { BatchCard } from "./BatchCard";
 import { ExportCard, defaultExportSettings, type ExportSettings } from "./ExportCard";
@@ -53,7 +53,12 @@ import {
   IconType,
   IconUndo,
   IconSend,
+  IconSettings,
 } from "./icons";
+import { SettingsTool } from "./SettingsTool";
+import { useOnOpenSettings } from "./settings";
+import { LayerHandles } from "./LayersEditor";
+import type { Layer } from "../src/scenes/layers";
 
 const isTyping = (el: EventTarget | null) => {
   const tag = (el as HTMLElement | null)?.tagName;
@@ -66,7 +71,7 @@ const saveText: Record<SaveState, string> = { idle: "", dirty: "فيه تعدي�
 // (الصور زي اللوجو والخلفية بتعتبر "شكل"، والصور اللي جوه المشاهد موجودة في محرر المشاهد نفسه)
 const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "captions", "slides", "text", "lines", "media"]);
 
-type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "publish" | "inspect";
+type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "publish" | "settings" | "inspect";
 const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[] = [
   { id: "content", label: "المحتوى", icon: <IconLayers size={20} /> },
   { id: "ai", label: "ذكاء", icon: <IconSparkles size={20} /> },
@@ -76,6 +81,7 @@ const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[
   { id: "batch", label: "الشيت", icon: <IconTable size={20} /> },
   { id: "export", label: "التصدير", icon: <IconDownload size={20} /> },
   { id: "publish", label: "النشر", icon: <IconSend size={20} /> },
+  { id: "settings", label: "الإعدادات", icon: <IconSettings size={20} /> },
   { id: "inspect", label: "الخصائص", icon: <IconSliders size={20} />, narrowOnly: true },
 ];
 const toolTitle: Record<Tool, string> = {
@@ -87,6 +93,7 @@ const toolTitle: Record<Tool, string> = {
   batch: "فيديوهات كتير من شيت",
   export: "التصدير",
   publish: "النشر على المنصات",
+  settings: "الإعدادات: مفاتيح الخدمات",
   inspect: "الخصائص",
 };
 
@@ -136,6 +143,14 @@ export const App: React.FC = () => {
   // مناطق الأمان: بتوري الأماكن اللي واجهة المنصة هتغطيها
   const [safeZone, setSafeZone] = useState<PlatformId | "">("");
   const [arabicUi, setArabicUi] = useState(true);
+  // أي أداة محتاجة مفتاح بتفتح الإعدادات من هنا
+  useOnOpenSettings(
+    useCallback(() => {
+      setTool("settings");
+      setShowTool(true);
+    }, []),
+  );
+
   const openTool = (t: Tool) => {
     if (t === tool && showTool) setShowTool(false);
     else {
@@ -149,6 +164,7 @@ export const App: React.FC = () => {
   const scenes = scenesField ? ((props[scenesField.key] as Scene[]) ?? []) : [];
   const starts = scenesField ? sceneStarts(props as unknown as ProjectProps) : [];
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [selectedSeg, setSelectedSeg] = useState<number | null>(null); // المقطع المختار في المونتاج الأوتوماتيك
   // أوامر الكيبورد بتقرا آخر نسخة من الدوال دي (بتتحدث كل render تحت)
   const actions = useRef({ split: () => {}, remove: () => {} });
@@ -158,6 +174,15 @@ export const App: React.FC = () => {
   const playerRef = useRef<PlayerRef>(null);
   const [playing, setPlaying] = useState(false);
   const [frame, setFrame] = useState(0);
+
+  // طبقات المشهد المختار بتظهر كمقابض فوق المعاينة (لما المؤشر يكون جوه المشهد ده)
+  const layerScene = (() => {
+    const i = scenes.findIndex((s) => s.id === selectedSceneId);
+    const s = scenes[i];
+    if (!s?.layers?.length || preview) return null;
+    const end = starts[i] + Math.round((Number(s.duration) || 3) * meta.fps);
+    return frame >= starts[i] && frame < end ? { id: s.id, layers: s.layers as Layer[] } : null;
+  })();
   const [rate, setRate] = useState(1);
   const [loop, setLoop] = useState(true);
   const playerKey = `${project.id}:${project.videoId}`;
@@ -365,6 +390,25 @@ export const App: React.FC = () => {
         seek(start);
       },
     });
+    // لقطات B-roll فوق الكلام
+    const spans = brollSpans(ae, segs);
+    if (spans.length) {
+      tracks.push({
+        id: "broll",
+        label: "B-roll",
+        icon: <IconLayers size={14} />,
+        kind: "video",
+        blocks: spans.map(({ b, out }) => ({
+          id: b.id,
+          start: Math.round((out.fromMs / 1000) * fps),
+          frames: Math.max(1, Math.round(((out.toMs - out.fromMs) / 1000) * fps)),
+          label: b.description || b.query,
+          color: "#0ea5e9",
+          thumb: b.kind === "image" ? `/${b.src}` : undefined,
+        })),
+        onBlockClick: (_id, start) => seek(start),
+      });
+    }
     const words = ae.captions === "on" ? remapWords(edlInput(ae), segs) : [];
     if (words.length) {
       tracks.push({
@@ -449,9 +493,20 @@ export const App: React.FC = () => {
 
   // ===== الخانات =====
   const renderField = (f: Field) => {
-    if (f.type === "scenes") return <ScenesPanel scenes={scenes} selectedId={selectedSceneId} onSelect={selectScene} onChange={setScenes} />;
+    if (f.type === "scenes")
+      return (
+        <ScenesPanel
+          scenes={scenes}
+          selectedId={selectedSceneId}
+          onSelect={selectScene}
+          onChange={setScenes}
+          accent={String(props.accent ?? "#facc15")}
+          selectedLayerId={selectedLayerId}
+          onSelectLayer={setSelectedLayerId}
+        />
+      );
     if (f.type === "film") return <FilmPanel projectId={project.id} props={props} updateProps={updateProps} fps={fps} seek={seek} exportSettings={exportSettings} />;
-    if (f.type === "autoedit") return <AutoEditPanel props={props} updateProps={updateProps} projectName={project.name} fps={fps} seek={seek} exportSettings={exportSettings} />;
+    if (f.type === "autoedit") return <AutoEditPanel props={props} updateProps={updateProps} projectName={project.name} fps={fps} frame={frame} seek={seek} exportSettings={exportSettings} />;
     if (f.type === "captions") return <CaptionsPanel props={props} updateProps={updateProps} frame={frame} fps={fps} seek={seek} />;
     return <FieldInput field={f} value={props[f.key] ?? video.defaultProps[f.key]} onChange={(v) => updateProp(f.key, v)} />;
   };
@@ -506,6 +561,7 @@ export const App: React.FC = () => {
     ),
     export: <ExportCard settings={exportSettings} onSettings={setExportSettings} current={{ videoId: project.videoId, name: project.name, props }} />,
     publish: <PublishTool current={{ videoId: project.videoId, name: project.name, props }} meta={meta} />,
+    settings: <SettingsTool />,
     inspect: inspector,
   };
 
@@ -641,6 +697,14 @@ export const App: React.FC = () => {
               style={{ width: "100%" }}
             />
             {safeZone && <SafeZones platform={platforms.find((pl) => pl.id === safeZone)!} vertical={meta.height > meta.width} arabicUi={arabicUi} />}
+            {layerScene && (
+              <LayerHandles
+                layers={layerScene.layers}
+                selectedId={selectedLayerId}
+                onSelect={setSelectedLayerId}
+                onMove={(id, x, y) => setScenes(scenes.map((s) => (s.id === layerScene.id ? { ...s, layers: (s.layers ?? []).map((l) => (l.id === id ? { ...l, x, y } : l)) } : s)))}
+              />
+            )}
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 // خط إنتاج "مخرج الأفلام" (المرحلة 7)
 // صور الشخصيات ← الصورة الأولى لكل لقطة ← التعليق الصوتي ← الفيديو المتولد
-// المفاتيح في .env: FAL_KEY (الصور والفيديو) و ELEVENLABS_API_KEY (الصوت)
+// المفاتيح (من شاشة الإعدادات): FAL_KEY (الصور والفيديو وحركة الشفايف) و ELEVENLABS_API_KEY (الصوت)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { fal, ApiError, ValidationError } from "@fal-ai/client";
 import { MODELS } from "./models.mjs";
 import { ffmpegPath, transcribeFile, whisperStatus } from "./whisper.mjs";
+import { tryRemove } from "./fsutil.mjs";
 
 const isMock = () => process.env.AI_MOCK === "1";
 export class FilmError extends Error {}
@@ -19,12 +20,13 @@ export const filmStatus = () => ({
   mock: isMock(),
 });
 
-let falReady = false;
+// بنعيد الإعداد لو المفتاح اتغير من الإعدادات
+let falKey = null;
 const falClient = () => {
-  if (!process.env.FAL_KEY) throw new FilmError("حط FAL_KEY في ملف .env جنب server.mjs، وبعدين أعد تشغيل الاستوديو");
-  if (!falReady) {
+  if (!process.env.FAL_KEY) throw new FilmError("حط مفتاح fal.ai من ⚙️ الإعدادات");
+  if (falKey !== process.env.FAL_KEY) {
     fal.config({ credentials: process.env.FAL_KEY });
-    falReady = true;
+    falKey = process.env.FAL_KEY;
   }
   return fal;
 };
@@ -68,16 +70,17 @@ export const createFilm = ({ publicDir }) => {
     return dest;
   };
 
-  // الصور المحلية لازم تترفع على fal الأول عشان الموديلات تقدر تشوفها
+  // الملفات المحلية (صور، فيديو، صوت) لازم تترفع على fal الأول عشان الموديلات تقدر توصلها
+  const mimes = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4" };
   const uploadCache = new Map();
   const toFalUrl = async (p) => {
-    const file = abs(p);
+    const file = path.isAbsolute(String(p)) && fs.existsSync(p) ? p : abs(p);
     if (!file) throw new FilmError(`الملف مش موجود: ${p}`);
     if (/\.svg$/i.test(file)) throw new FilmError("صور SVG مش بتنفع مع موديلات الذكاء الاصطناعي، ارفع PNG أو JPG");
     const key = `${file}:${fs.statSync(file).mtimeMs}`;
     if (!uploadCache.has(key)) {
-      const ext = path.extname(file).slice(1).toLowerCase().replace("jpg", "jpeg");
-      const blob = new Blob([fs.readFileSync(file)], { type: `image/${ext}` });
+      const ext = path.extname(file).slice(1).toLowerCase();
+      const blob = new Blob([fs.readFileSync(file)], { type: mimes[ext] ?? "application/octet-stream" });
       try {
         uploadCache.set(key, await falClient().storage.upload(blob));
       } catch (e) {
@@ -256,7 +259,7 @@ export const createFilm = ({ publicDir }) => {
 
     if (provider === "elevenlabs" && !isMock()) {
       const key = process.env.ELEVENLABS_API_KEY;
-      if (!key) throw new FilmError("حط ELEVENLABS_API_KEY في ملف .env جنب server.mjs");
+      if (!key) throw new FilmError("حط مفتاح ElevenLabs من ⚙️ الإعدادات");
       if (!voiceId) throw new FilmError("اختار صوت من ElevenLabs الأول");
       onProgress?.("بيسجّل الصوت");
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, {
@@ -289,7 +292,7 @@ export const createFilm = ({ publicDir }) => {
     try {
       await run("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(path.dirname(publicDir), "scripts", "tts.ps1"), "-TextFile", txt, "-Out", dest]);
     } finally {
-      fs.rmSync(txt, { force: true, maxRetries: 5, retryDelay: 200 });
+      tryRemove(txt);
     }
     const secs = await duration(dest);
     return { voice: rel(dest), voiceDuration: secs, words: await timeWords(dest, text, secs) };
@@ -327,6 +330,96 @@ export const createFilm = ({ publicDir }) => {
     return { clip: rel(dest), clipDuration: secs };
   };
 
+  // ===== صورة واقعية لوحدها (لقطات B-roll في المونتاج الأوتوماتيك) =====
+  const still = async ({ prompt, format, onProgress }) => {
+    const dir = path.join(publicDir, "uploads", "broll");
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, `ai-${stamp()}.jpg`);
+    if (isMock()) {
+      const [w, h] = mockSize(format);
+      return rel(mockPng(dest.replace(/\.jpg$/, ".png"), w, h, prompt.length));
+    }
+    if (!process.env.FAL_KEY) throw new FilmError("حط مفتاح Pexels (لقطات حقيقية مجانية) أو fal.ai (صور متولدة) من ⚙️ الإعدادات");
+    const data = await callFal(
+      MODELS.image.text,
+      {
+        prompt: `Photorealistic B-roll still for a social media video: ${prompt}. Natural light, real-life documentary look, shallow depth of field. No text, no captions, no watermarks.`,
+        aspect_ratio: aspectOf(format),
+        resolution: "1K",
+        output_format: "jpeg",
+        num_images: 1,
+      },
+      onProgress,
+    );
+    await download(data.images[0].url, dest);
+    return rel(dest);
+  };
+
+  // ===== 5) حركة الشفايف على الكلام =====
+  // الصوت بيتحط في نفس مكانه في الفيلم (بعد 0.15 ثانية من أول اللقطة) وبيتمد بسكوت لطول الفيديو،
+  // عشان الشفايف تتحرك في نفس اللحظة اللي الكلام بيتسمع فيها
+  const VOICE_DELAY = 0.15; // نفس الرقم اللي في src/FilmVideo.tsx
+  const padVoice = async (voiceFile, seconds, dest) => {
+    const tmp = path.join(os.tmpdir(), `montag-lip-${stamp()}.wav`);
+    try {
+      await run(ffmpegPath(), ["-y", "-i", voiceFile, "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", tmp]);
+      const buf = fs.readFileSync(tmp);
+      const data = buf.subarray(buf.indexOf("data") + 8);
+      const rate = 44100;
+      const total = Math.round(seconds * rate) * 2;
+      const lead = Math.round(VOICE_DELAY * rate) * 2;
+      const body = Buffer.alloc(total);
+      data.copy(body, lead, 0, Math.max(0, Math.min(data.length, total - lead)));
+      const h = Buffer.alloc(44);
+      h.write("RIFF", 0);
+      h.writeUInt32LE(36 + body.length, 4);
+      h.write("WAVEfmt ", 8);
+      h.writeUInt32LE(16, 16);
+      h.writeUInt16LE(1, 20);
+      h.writeUInt16LE(1, 22);
+      h.writeUInt32LE(rate, 24);
+      h.writeUInt32LE(rate * 2, 28);
+      h.writeUInt16LE(2, 32);
+      h.writeUInt16LE(16, 34);
+      h.write("data", 36);
+      h.writeUInt32LE(body.length, 40);
+      fs.writeFileSync(dest, Buffer.concat([h, body]));
+      return dest;
+    } finally {
+      tryRemove(tmp);
+    }
+  };
+
+  const lipsync = async ({ projectId, shot, onProgress }) => {
+    const clipFile = abs(shot.clip);
+    const voiceFile = abs(shot.voice);
+    if (!clipFile) throw new FilmError("ولّد فيديو اللقطة الأول");
+    if (!voiceFile) throw new FilmError("سجّل صوت اللقطة الأول");
+    const dir = dirFor(projectId);
+    const dest = path.join(dir, `shot-${shot.id}-lips-${stamp()}.mp4`);
+    const of = `${shot.clip}|${shot.voice}`;
+
+    if (isMock()) {
+      // وضع التجربة: نسخة من الفيديو زي ما هو
+      onProgress?.("بيحرّك الشفايف (تجربة)");
+      fs.copyFileSync(clipFile, dest);
+      return { lipsync: rel(dest), lipsyncOf: of };
+    }
+
+    onProgress?.("بيجهّز الصوت");
+    const secs = (await duration(clipFile)) || Number(shot.clipDuration) || Number(shot.duration) || 5;
+    const padded = await padVoice(voiceFile, secs, path.join(os.tmpdir(), `montag-lipvoice-${stamp()}.wav`));
+    try {
+      onProgress?.("بيرفع الفيديو والصوت");
+      const [videoUrl, audioUrl] = await Promise.all([toFalUrl(clipFile), toFalUrl(padded)]);
+      const data = await callFal(MODELS.lipsync.endpoint, { model: MODELS.lipsync.model, video_url: videoUrl, audio_url: audioUrl, sync_mode: "cut_off" }, onProgress);
+      await download(data.video.url, dest);
+    } finally {
+      tryRemove(padded);
+    }
+    return { lipsync: rel(dest), lipsyncOf: of };
+  };
+
   // ===== الأصوات المتاحة =====
   const voices = async () => {
     const key = process.env.ELEVENLABS_API_KEY;
@@ -354,11 +447,11 @@ export const createFilm = ({ publicDir }) => {
     } catch {
       return null;
     } finally {
-      fs.rmSync(tmp, { force: true, maxRetries: 5, retryDelay: 200 });
+      tryRemove(tmp);
     }
   };
 
-  return { character, keyframe, voice, clip, voices, imageForClaude };
+  return { character, keyframe, voice, clip, lipsync, still, voices, imageForClaude };
 };
 
 // HSL ← RGB (لصور وضع التجربة)

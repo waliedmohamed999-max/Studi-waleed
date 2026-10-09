@@ -1,5 +1,5 @@
 // الذكاء الاصطناعي جوه الاستوديو (المرحلة 5) عن طريق Claude API
-// المفتاح: ANTHROPIC_API_KEY في ملف .env جنب server.mjs
+// المفتاح: ANTHROPIC_API_KEY (بيتحط من شاشة الإعدادات، وبيتحفظ في .env)
 import Anthropic from "@anthropic-ai/sdk";
 
 const MODEL = "claude-opus-5-5";
@@ -8,8 +8,16 @@ const MODEL = "claude-opus-5-5";
 // (بنقراه وقت الطلب مش وقت التحميل، عشان ملف .env بيتقري بعد الـ imports)
 const isMock = () => process.env.AI_MOCK === "1";
 
+// العميل بيتعمل من جديد لو المفتاح اتغير من الإعدادات
 let client = null;
-const getClient = () => (client ??= new Anthropic());
+let clientKey = null;
+const getClient = () => {
+  if (!client || clientKey !== process.env.ANTHROPIC_API_KEY) {
+    clientKey = process.env.ANTHROPIC_API_KEY;
+    client = new Anthropic();
+  }
+  return client;
+};
 
 export const aiStatus = () => ({
   available: isMock() || !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
@@ -38,7 +46,7 @@ const askJson = async ({ system, user, schema, effort = "medium", maxTokens = 16
       })
       .finalMessage();
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new AiError("مفتاح Claude غلط. راجع ANTHROPIC_API_KEY في ملف .env");
+    if (e instanceof Anthropic.AuthenticationError) throw new AiError("مفتاح Claude غلط. غيّره من ⚙️ الإعدادات");
     if (e instanceof Anthropic.PermissionDeniedError) throw new AiError("المفتاح ده مش مسموح له يستخدم الموديل");
     if (e instanceof Anthropic.RateLimitError) throw new AiError("طلبات كتير ورا بعض، استنى دقيقة وجرب تاني");
     if (e instanceof Anthropic.BadRequestError) throw new AiError(`الطلب مش مظبوط: ${e.message}`);
@@ -236,7 +244,8 @@ Also write
 - style: one English paragraph that defines the visual language of the whole film (look, lighting, color grade, lens choices, texture), reused for every shot.
 - cta and ctaSub: a short Arabic call-to-action for the end card and a supporting line (contact, handle or slogan if the client gave one; otherwise a short tagline). Empty strings if the video type doesn't need one.
 - musicPrompt: one English sentence describing instrumental background music for the whole film (genre, mood, instruments, tempo), fitting the Saudi audience (e.g. oud, qanun, Khaleeji percussion, or modern cinematic/corporate when that fits better). No vocals.
-- sfxPrompt per shot: a short English description of the ambient sound or sound effect that makes the shot feel real (e.g. "espresso machine hissing, cafe ambience", "desert wind"), or empty when the shot needs none.`,
+- sfxPrompt per shot: a short English description of the ambient sound or sound effect that makes the shot feel real (e.g. "espresso machine hissing, cafe ambience", "desert wind"), or empty when the shot needs none.
+- speaker per shot: when a character says the shot's voiceLine on camera (dialogue, testimonial, presenter talking to the lens), put that character's id; the pipeline will sync their lips to the voice, so their face must be clearly visible, facing the camera or in three-quarter view, mouth unobstructed, with little head movement in motionPrompt. Otherwise empty (the voiceLine is narration over the image). Use on-camera speakers only where it truly serves the film (e.g. testimonials, a presenter, a short dialogue); most ads work best with narration.`,
     user: content,
     schema: obj({
       title: str,
@@ -258,6 +267,7 @@ Also write
           voiceLine: str,
           onScreenText: str,
           sfxPrompt: str,
+          speaker: str,
         }),
       },
     }),
@@ -286,13 +296,15 @@ You receive the transcript as word-number:word tokens (with timestamps at pauses
 - cuts: remove retakes (when the speaker restarts or repeats a sentence, keep the LAST complete, clean take and cut the earlier attempts), false starts, stumbles, self-corrections, "let me say that again", off-topic chatter, and dead content that adds nothing. Never cut content that carries meaning, and never cut mid-sentence in a way that breaks grammar. When unsure, keep it. Give each cut a short Arabic reason (e.g. "إعادة"، "بداية غلط"، "كلام جانبي").
 - emphasis: 3 to 8 short ranges that are the punchlines or key statements, where a punch-in zoom adds energy.
 - highlights: up to ${maxHighlights} self-contained clips for Reels/TikTok, each 15 to 60 seconds, that make sense alone and start with a strong first sentence. Give each an Arabic title and an Arabic hook (a short, curiosity-driven line of up to 8 words shown on screen in the first 3 seconds), in the speaker's dialect.
-- hookTitle: the same kind of on-screen hook for the full edited video.`,
+- hookTitle: the same kind of on-screen hook for the full edited video.
+- broll: 2 to 6 moments (each covering 2 to 5 seconds of speech, never overlapping a cut or each other, never in the first 3 seconds) where cutting away to supporting footage while the speaker keeps talking makes the video clearer or more engaging: when they mention a concrete thing, place, action, product or example. For each give query, a short English stock-footage search phrase of 2 to 4 concrete visual words (e.g. "pouring espresso", "riyadh skyline night", "typing laptop"), and description, a short Arabic description of the shot for the editor. Skip abstract statements that no footage can show.`,
     user: `Transcript (${words.length} words):\n${transcript}`,
     schema: obj({
       hookTitle: str,
       cuts: { type: "array", items: obj({ fromWord: { type: "integer" }, toWord: { type: "integer" }, reason: str }) },
       emphasis: { type: "array", items: obj({ fromWord: { type: "integer" }, toWord: { type: "integer" } }) },
       highlights: { type: "array", items: obj({ title: str, hook: str, fromWord: { type: "integer" }, toWord: { type: "integer" } }) },
+      broll: { type: "array", items: obj({ fromWord: { type: "integer" }, toWord: { type: "integer" }, query: str, description: str }) },
     }),
   });
 };
@@ -322,6 +334,7 @@ const mockTalk = (n) => {
     hookTitle: "الفرق اللي محدش قالك عليه 👀",
     cuts: n > 12 ? [{ fromWord: 4, toWord: 6, reason: "إعادة (تجربة)" }] : [],
     emphasis: n > 3 ? [{ fromWord: 1, toWord: Math.min(3, n - 1) }] : [],
+    broll: n > 10 ? [{ fromWord: Math.floor(n / 2), toWord: Math.min(n - 1, Math.floor(n / 2) + 3), query: "pouring coffee", description: "قهوة بتتصب (تجربة)" }] : [],
     highlights:
       n > 6
         ? [
@@ -339,10 +352,10 @@ const mockFilm = (uploadCount) => ({
   musicPrompt: "Warm acoustic oud with soft percussion, calm morning mood, 90 bpm",
   characters: [{ id: "c1", name: "فهد", description: "Saudi man in his early 30s, short trimmed beard, white thobe, red-and-white shemagh, calm confident expression" }],
   shots: [
-    { purpose: "لقطة افتتاحية للرياض وقت الشروق", duration: 4, imagePrompt: "Wide aerial view of Riyadh skyline at sunrise, golden haze, Kingdom Centre in the distance", motionPrompt: "Slow drone push-in toward the skyline", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "كل يوم يبدأ بفنجال", onScreenText: "", sfxPrompt: "early morning city ambience, birds" },
-    { purpose: "فهد يدخل الكافيه", duration: 5, imagePrompt: "Medium shot of a Saudi man entering a modern specialty coffee shop, warm interior light", motionPrompt: "Handheld follow shot as he walks to the counter", characters: ["c1"], refUploads: uploadCount ? [0] : [], sourceUpload: -1, voiceLine: "وفي مكان يعرف وش تحب", onScreenText: "", sfxPrompt: "" },
-    { purpose: "تفاصيل تحضير القهوة", duration: 4, imagePrompt: "Extreme close-up of espresso pouring into a ceramic cup, steam rising, dark wood counter", motionPrompt: "Slow motion pour with rack focus", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "", onScreenText: "محمّصة بحب", sfxPrompt: "espresso machine hissing, coffee pouring" },
-    { purpose: "فهد يستمتع بالقهوة", duration: 5, imagePrompt: "Close-up of the man smiling while holding a coffee cup by the window, golden light", motionPrompt: "Slow dolly-in on his face as he takes a sip", characters: ["c1"], refUploads: [], sourceUpload: -1, voiceLine: "طعم يخلي صباحك غير", onScreenText: "", sfxPrompt: "" },
+    { purpose: "لقطة افتتاحية للرياض وقت الشروق", duration: 4, imagePrompt: "Wide aerial view of Riyadh skyline at sunrise, golden haze, Kingdom Centre in the distance", motionPrompt: "Slow drone push-in toward the skyline", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "كل يوم يبدأ بفنجال", onScreenText: "", sfxPrompt: "early morning city ambience, birds", speaker: "" },
+    { purpose: "فهد يدخل الكافيه", duration: 5, imagePrompt: "Medium shot of a Saudi man entering a modern specialty coffee shop, warm interior light", motionPrompt: "Handheld follow shot as he walks to the counter", characters: ["c1"], refUploads: uploadCount ? [0] : [], sourceUpload: -1, voiceLine: "وفي مكان يعرف وش تحب", onScreenText: "", sfxPrompt: "", speaker: "" },
+    { purpose: "تفاصيل تحضير القهوة", duration: 4, imagePrompt: "Extreme close-up of espresso pouring into a ceramic cup, steam rising, dark wood counter", motionPrompt: "Slow motion pour with rack focus", characters: [], refUploads: [], sourceUpload: -1, voiceLine: "", onScreenText: "محمّصة بحب", sfxPrompt: "espresso machine hissing, coffee pouring", speaker: "" },
+    { purpose: "فهد يستمتع بالقهوة", duration: 5, imagePrompt: "Close-up of the man smiling while holding a coffee cup by the window, golden light", motionPrompt: "Slow dolly-in on his face as he takes a sip", characters: ["c1"], refUploads: [], sourceUpload: -1, voiceLine: "طعم يخلي صباحك غير", onScreenText: "", sfxPrompt: "", speaker: "c1" },
   ],
 });
 
