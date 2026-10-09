@@ -192,7 +192,8 @@ export const CaptionsLayer: React.FC<{ captions: Caption[]; look: CaptionLook; b
               style={{
                 justifyContent: justify,
                 alignItems: "center",
-                padding: look.position === "center" ? unit * 0.06 : `${height * 0.14}px ${unit * 0.06}px`,
+                // في الفيديو الطولي الكابشن فوق منطقة أزرار تيك توك وريلز (حوالي 22٪ من تحت)
+                padding: look.position === "center" ? unit * 0.06 : `${height * (height > width ? 0.23 : 0.12)}px ${unit * 0.06}px`,
               }}
             >
               <CaptionPage page={page} p={look} />

@@ -297,7 +297,25 @@ You receive the transcript as word-number:word tokens (with timestamps at pauses
   });
 };
 
+// ===== 7) كابشن النشر والهاشتاجات =====
+export const writePost = async ({ platform, dialect, content, hashtags }) => {
+  if (isMock()) return mockPost;
+  return askJson({
+    effort: "low",
+    system: `You write social media post copy for Arabic-speaking audiences, especially the Saudi and Gulf market.
+Write in ${dialectFilm(dialect)}. Match the platform's culture: TikTok and Snapchat are casual and punchy, Instagram is aesthetic and warm, YouTube needs a searchable title, X is short and witty.
+The caption opens with a hook line, adds one or two lines of value, and ends with a light call to action. Use emojis sparingly. Hashtags mix broad Arabic tags, niche tags, and local tags when relevant (e.g. #الرياض, #السعودية), without the # symbol duplicated.`,
+    user: `Platform: ${platform}\nNumber of hashtags: ${hashtags}\n\nWhat the video is about:\n${content}`,
+    schema: obj({ title: str, caption: str, hashtags: { type: "array", items: str } }),
+  });
+};
 // ===== ردود ثابتة للتجربة من غير مفتاح (AI_MOCK=1) =====
+const mockPost = {
+  title: "سر القهوة اللي محدش قالك عليه ☕ (تجربة)",
+  caption: "صباحك ما يكمل إلا بفنجال صح ☕\nجربنا القهوة المختصة وهذا رأينا بصراحة.\nقولنا في التعليقات: وش قهوتك المفضلة؟",
+  hashtags: ["قهوة", "قهوة_مختصة", "الرياض", "السعودية", "كافيهات_الرياض"],
+};
+
 const mockTalk = (n) => {
   const third = Math.max(1, Math.floor(n / 3));
   return {

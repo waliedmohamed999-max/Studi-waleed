@@ -46,7 +46,8 @@ export const Timeline: React.FC<{
   fps: number;
   frame: number;
   onSeek: (frame: number) => void;
-}> = ({ tracks, total, fps, frame, onSeek }) => {
+  tools?: ReactNode; // أزرار إضافية في شريط التايملاين (زي القص والحذف)
+}> = ({ tracks, total, fps, frame, onSeek, tools }) => {
   const innerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<{ track: string; from: number; over: number | null } | null>(null);
@@ -114,6 +115,7 @@ export const Timeline: React.FC<{
           {timecode(frame, fps)}
         </span>
         <span className="tl-total">/ {timecode(total, fps)}</span>
+        {tools && <div className="tl-tools">{tools}</div>}
         <label className="tl-zoom">
           <IconZoomIn size={15} />
           <span className="sr-only">زووم التايملاين</span>

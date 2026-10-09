@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { createQueue, formats } from "./scripts/render-queue.mjs";
 import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath } from "./scripts/whisper.mjs";
-import { AiError, aiStatus, analyzeTalk, generateVideo, improveScene, planFilm, suggestBrand, writeScript } from "./scripts/ai.mjs";
+import { AiError, aiStatus, analyzeTalk, generateVideo, improveScene, planFilm, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
 import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
@@ -339,6 +339,13 @@ app.post("/api/autoedit/speech", async (req, res) => {
   }
 });
 
+// ===== كابشن النشر =====
+app.post(
+  "/api/ai/post",
+  aiRoute((b) =>
+    writePost({ platform: clip(b.platform, 40), dialect: clip(b.dialect, 10), content: clip(b.content, 6000), hashtags: Math.min(15, Math.max(0, Number(b.hashtags) || 5)) }),
+  ),
+);
 // ===== المونتاج الأوتوماتيك: تحليل الكلام بـ Claude =====
 app.post(
   "/api/autoedit/analyze",

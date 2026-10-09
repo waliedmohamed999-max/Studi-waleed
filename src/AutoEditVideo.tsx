@@ -20,6 +20,7 @@ export type AutoEditProps = {
   padMs: number;
   removeFillers: string; // on | off
   cuts: CutRange[];
+  splits: number[]; // نقط القص اليدوي
   emphasis: TimeRange[]; // جمل مهمة (زووم عليها)
   highlights: Highlight[]; // مقاطع ريلز مقترحة
   range: TimeRange | null; // لو بنصدّر مقطع واحد بس
@@ -50,6 +51,7 @@ export const edlInput = (p: AutoEditProps): EdlInput => ({
   removeFillers: p.removeFillers !== "off",
   cuts: p.cuts ?? [],
   range: p.range,
+  splits: p.splits ?? [],
 });
 
 export const autoEditSegments = (p: AutoEditProps) => buildSegments(edlInput(p));

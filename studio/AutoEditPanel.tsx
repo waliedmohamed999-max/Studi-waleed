@@ -195,10 +195,15 @@ export const AutoEditPanel: React.FC<{
           </button>
           {ai && !ai.available && <div className="hint">محتاج مفتاح Claude (ANTHROPIC_API_KEY في .env).</div>}
 
-          {p.cuts.length > 0 && (
-            <>
-              <span className="film-sub">أجزاء هتتشال ({p.cuts.filter((c) => c.enabled).length}/{p.cuts.length})</span>
-              <ul className="ae-cuts">
+
+        </div>
+      )}
+
+      {/* الأجزاء اللي هتتشال (من Claude أو الحذف اليدوي) */}
+      {p.cuts.length > 0 && (
+        <div className="ae-step">
+          <span className="ae-step-title">أجزاء هتتشال ({p.cuts.filter((c) => c.enabled).length}/{p.cuts.length})</span>
+          <ul className="ae-cuts">
                 {p.cuts.map((c, i) => (
                   <li key={i} className={c.enabled ? "" : "off"}>
                     <label className="check">
@@ -211,8 +216,6 @@ export const AutoEditPanel: React.FC<{
                 ))}
               </ul>
               <div className="hint">شيل العلامة من أي جزء عايزه يفضل في الفيديو.</div>
-            </>
-          )}
         </div>
       )}
 

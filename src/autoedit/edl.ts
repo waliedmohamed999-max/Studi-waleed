@@ -34,6 +34,7 @@ export type EdlInput = {
   removeFillers: boolean;
   cuts: CutRange[]; // أجزاء Claude قال تتشال (إعادة، غلطة...)
   range?: TimeRange | null; // لو بنعمل مقطع واحد بس (ريلز من فيديو طويل)
+  splits?: number[]; // نقط قص يدوي (بالمللي ثانية في الفيديو الأصلي)
 };
 
 // ===== أدوات الفترات =====
@@ -149,6 +150,12 @@ export const buildSegments = (input: EdlInput): Segment[] => {
   const rng = range ? resolveRange(range as TimeRange & { fromWord?: number; toWord?: number }, words) : null;
   if (rng) kept = kept.map((r) => ({ fromMs: Math.max(r.fromMs, rng.fromMs), toMs: Math.min(r.toMs, rng.toMs) })).filter((r) => r.toMs > r.fromMs);
 
+  // 5) القص اليدوي: كل نقطة قص بتقسم المقطع اللي هي فيه لاتنين
+  for (const s of [...(input.splits ?? [])].sort((a, b) => a - b)) {
+    const i = kept.findIndex((r) => s > r.fromMs + 1 && s < r.toMs - 1);
+    if (i >= 0) kept.splice(i, 1, { fromMs: kept[i].fromMs, toMs: s }, { fromMs: s, toMs: kept[i].toMs });
+  }
+
   let out = 0;
   return kept
     .filter((s) => s.toMs - s.fromMs >= 150) // الحتت الصغيرة جدًا بتعمل تقطيع مزعج
@@ -160,6 +167,12 @@ export const buildSegments = (input: EdlInput): Segment[] => {
 };
 
 export const totalMs = (segments: Segment[]) => segments.reduce((sum, s) => sum + (s.toMs - s.fromMs), 0);
+
+// وقت بعد المونتاج ← وقته في الفيديو الأصلي (عشان نعرف القص اليدوي هيحصل فين)
+export const outToSource = (outMs: number, segments: Segment[]) => {
+  const s = segments.find((x) => outMs >= x.outMs && outMs < x.outMs + (x.toMs - x.fromMs));
+  return s ? s.fromMs + (outMs - s.outMs) : null;
+};
 
 // وقت في الفيديو الأصلي ← وقته بعد المونتاج (أو null لو اتقص)
 export const sourceToOut = (ms: number, segments: Segment[]) => {

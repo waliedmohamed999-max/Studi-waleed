@@ -204,6 +204,7 @@ const autoEditDefaults: AutoEditProps = {
   padMs: 120,
   removeFillers: "on",
   cuts: [],
+  splits: [],
   emphasis: [],
   highlights: [],
   range: null,

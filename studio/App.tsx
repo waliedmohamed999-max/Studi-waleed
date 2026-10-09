@@ -19,8 +19,10 @@ import { AiCard } from "./AiCard";
 import { FilmPanel } from "./FilmPanel";
 import { AutoEditPanel } from "./AutoEditPanel";
 import { SoundTool } from "./SoundTool";
+import { PublishTool } from "./PublishTool";
+import { platforms, type Platform, type PlatformId } from "./platforms";
 import { autoEditSegments, edlInput, type AutoEditProps } from "../src/AutoEditVideo";
-import { remapWords } from "../src/autoedit/edl";
+import { outToSource, remapWords } from "../src/autoedit/edl";
 import { BatchCard } from "./BatchCard";
 import { ExportCard, defaultExportSettings, type ExportSettings } from "./ExportCard";
 import { Timeline, timecode, type TlTrack } from "./Timeline";
@@ -50,6 +52,7 @@ import {
   IconTable,
   IconType,
   IconUndo,
+  IconSend,
 } from "./icons";
 
 const isTyping = (el: EventTarget | null) => {
@@ -63,7 +66,7 @@ const saveText: Record<SaveState, string> = { idle: "", dirty: "فيه تعدي�
 // (الصور زي اللوجو والخلفية بتعتبر "شكل"، والصور اللي جوه المشاهد موجودة في محرر المشاهد نفسه)
 const contentTypes = new Set<Field["type"]>(["scenes", "film", "autoedit", "captions", "slides", "text", "lines", "media"]);
 
-type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "inspect";
+type Tool = "content" | "ai" | "sound" | "project" | "brand" | "batch" | "export" | "publish" | "inspect";
 const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[] = [
   { id: "content", label: "المحتوى", icon: <IconLayers size={20} /> },
   { id: "ai", label: "ذكاء", icon: <IconSparkles size={20} /> },
@@ -72,6 +75,7 @@ const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[
   { id: "brand", label: "البراند", icon: <IconPalette size={20} /> },
   { id: "batch", label: "الشيت", icon: <IconTable size={20} /> },
   { id: "export", label: "التصدير", icon: <IconDownload size={20} /> },
+  { id: "publish", label: "النشر", icon: <IconSend size={20} /> },
   { id: "inspect", label: "الخصائص", icon: <IconSliders size={20} />, narrowOnly: true },
 ];
 const toolTitle: Record<Tool, string> = {
@@ -82,12 +86,35 @@ const toolTitle: Record<Tool, string> = {
   brand: "هوية البراند",
   batch: "فيديوهات كتير من شيت",
   export: "التصدير",
+  publish: "النشر على المنصات",
   inspect: "الخصائص",
 };
 
 // النسبة بأبسط شكل (1080×1920 ← 9:16)
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 const ratioLabel = (w: number, h: number) => `${w / gcd(w, h)}:${h / gcd(w, h)}`;
+
+// ===== رسم مناطق الأمان فوق المعاينة =====
+const SafeZones: React.FC<{ platform: Platform; vertical: boolean; arabicUi: boolean }> = ({ platform, vertical, arabicUi }) => {
+  if (!vertical || !platform.safe) return <div className="safe-note">مناطق الأمان للفيديو الطولي (9:16) بس</div>;
+  const s = platform.safe;
+  // في التطبيق الإنجليزي الأزرار يمين، وفي العربي شمال
+  const iconsLeft = arabicUi;
+  return (
+    <div className="safe-zones" aria-hidden="true">
+      <div className="sz sz-top" style={{ height: `${s.top * 100}%` }}>
+        <span>{platform.name}: الشريط اللي فوق</span>
+      </div>
+      <div className="sz sz-bottom" style={{ height: `${s.bottom * 100}%` }}>
+        <span>اسم الحساب والوصف والمزيكا</span>
+      </div>
+      <div className="sz sz-side" style={{ top: `${s.top * 100}%`, bottom: `${s.bottom * 100}%`, width: `${s.side * 100}%`, [iconsLeft ? "left" : "right"]: 0 }}>
+        <span>الأزرار</span>
+      </div>
+      <div className="sz sz-thin" style={{ top: `${s.top * 100}%`, bottom: `${s.bottom * 100}%`, width: `${s.otherSide * 100}%`, [iconsLeft ? "right" : "left"]: 0 }} />
+    </div>
+  );
+};
 
 const fileName = (p: unknown) => String(p ?? "").split("/").pop()?.replace(/^[a-z0-9]+-(?=.)/, "") ?? "";
 
@@ -106,6 +133,9 @@ export const App: React.FC = () => {
   const [showTool, setShowTool] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
   const [showTimeline, setShowTimeline] = useState(true);
+  // مناطق الأمان: بتوري الأماكن اللي واجهة المنصة هتغطيها
+  const [safeZone, setSafeZone] = useState<PlatformId | "">("");
+  const [arabicUi, setArabicUi] = useState(true);
   const openTool = (t: Tool) => {
     if (t === tool && showTool) setShowTool(false);
     else {
@@ -119,6 +149,9 @@ export const App: React.FC = () => {
   const scenes = scenesField ? ((props[scenesField.key] as Scene[]) ?? []) : [];
   const starts = scenesField ? sceneStarts(props as unknown as ProjectProps) : [];
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [selectedSeg, setSelectedSeg] = useState<number | null>(null); // المقطع المختار في المونتاج الأوتوماتيك
+  // أوامر الكيبورد بتقرا آخر نسخة من الدوال دي (بتتحدث كل render تحت)
+  const actions = useRef({ split: () => {}, remove: () => {} });
   const setScenes = (next: Scene[]) => scenesField && updateProps({ [scenesField.key]: next });
 
   // ===== المشغل =====
@@ -227,6 +260,11 @@ export const App: React.FC = () => {
       else if (e.code === "ArrowLeft") seek(cur - (e.shiftKey ? meta.fps : 1));
       else if (e.code === "Home") seek(0);
       else if (e.code === "End") seek(meta.durationInFrames - 1);
+      else if (e.code === "KeyS" && !e.ctrlKey && !e.metaKey) actions.current.split();
+      else if (e.code === "Delete" || e.code === "Backspace") {
+        e.preventDefault();
+        actions.current.remove();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -320,8 +358,12 @@ export const App: React.FC = () => {
         frames: Math.max(1, Math.round(((s.toMs - s.fromMs) / 1000) * fps)),
         label: firstWords(s.fromMs, s.toMs) || "مقطع",
         color: i % 2 ? "#3b82f6" : "#6366f1",
+        selected: selectedSeg === i,
       })),
-      onBlockClick: (_id, start) => seek(start),
+      onBlockClick: (id, start) => {
+        setSelectedSeg(Number(id.slice(1)));
+        seek(start);
+      },
     });
     const words = ae.captions === "on" ? remapWords(edlInput(ae), segs) : [];
     if (words.length) {
@@ -366,6 +408,44 @@ export const App: React.FC = () => {
   if (typeof props.music === "string" && props.music) {
     tracks.push({ id: "music", label: "المزيكا", icon: <IconMusic size={14} />, kind: "audio", blocks: [{ id: "music", start: 0, frames: total, label: fileName(props.music), color: "#a855f7" }] });
   }
+
+  // ===== القص اليدوي (المونتاج الأوتوماتيك) =====
+  const isAutoEdit = video.id === "AutoEdit";
+  const splitAtPlayhead = () => {
+    if (!isAutoEdit) return;
+    const segs = autoEditSegments(props as unknown as AutoEditProps);
+    const src = outToSource((frame / fps) * 1000, segs);
+    if (src === null) return;
+    updateProps((prev) => ({ ...prev, splits: [...((prev.splits as number[]) ?? []), Math.round(src)] }));
+  };
+  const deleteSelected = () => {
+    if (isAutoEdit && selectedSeg !== null) {
+      const seg = autoEditSegments(props as unknown as AutoEditProps)[selectedSeg];
+      if (!seg) return;
+      updateProps((prev) => ({ ...prev, cuts: [...((prev.cuts as unknown[]) ?? []), { fromMs: seg.fromMs, toMs: seg.toMs, reason: "حذف يدوي", enabled: true }] }));
+      setSelectedSeg(null);
+    } else if (scenesField && selectedSceneId) {
+      const i = scenes.findIndex((s) => s.id === selectedSceneId);
+      const next = scenes.filter((s) => s.id !== selectedSceneId);
+      setScenes(next);
+      setSelectedSceneId(next[Math.min(i, next.length - 1)]?.id ?? null);
+    }
+  };
+  actions.current = { split: splitAtPlayhead, remove: deleteSelected };
+  const timelineTools = isAutoEdit ? (
+    <>
+      <button type="button" className="tl-btn" onClick={splitAtPlayhead} title="اقطع عند المؤشر (S)">
+        ✂️ اقطع
+      </button>
+      <button type="button" className="tl-btn" onClick={deleteSelected} disabled={selectedSeg === null} title="امسح المقطع المختار (Delete)">
+        🗑 امسح
+      </button>
+    </>
+  ) : scenesField ? (
+    <button type="button" className="tl-btn" onClick={deleteSelected} disabled={!selectedSceneId} title="امسح المشهد المختار (Delete)">
+      🗑 امسح المشهد
+    </button>
+  ) : null;
 
   // ===== الخانات =====
   const renderField = (f: Field) => {
@@ -425,6 +505,7 @@ export const App: React.FC = () => {
       />
     ),
     export: <ExportCard settings={exportSettings} onSettings={setExportSettings} current={{ videoId: project.videoId, name: project.name, props }} />,
+    publish: <PublishTool current={{ videoId: project.videoId, name: project.name, props }} meta={meta} />,
     inspect: inspector,
   };
 
@@ -519,6 +600,25 @@ export const App: React.FC = () => {
               </button>
             </span>
           )}
+          <label className="safe-pick" title="بيوريك الأماكن اللي أزرار وكلام المنصة هيغطوها">
+            <span>مناطق الأمان</span>
+            <select value={safeZone} onChange={(e) => setSafeZone(e.target.value as PlatformId | "")}>
+              <option value="">مقفولة</option>
+              {platforms
+                .filter((pl) => pl.safe)
+                .map((pl) => (
+                  <option key={pl.id} value={pl.id}>
+                    {pl.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {safeZone && (
+            <label className="check" title="التطبيقات بالعربي بتحط الأزرار على الشمال">
+              <input type="checkbox" checked={arabicUi} onChange={(e) => setArabicUi(e.target.checked)} />
+              التطبيق بالعربي
+            </label>
+          )}
           <span className="viewer-res">{ratioLabel(meta.width, meta.height)}</span>
         </div>
 
@@ -540,6 +640,7 @@ export const App: React.FC = () => {
               acknowledgeRemotionLicense
               style={{ width: "100%" }}
             />
+            {safeZone && <SafeZones platform={platforms.find((pl) => pl.id === safeZone)!} vertical={meta.height > meta.width} arabicUi={arabicUi} />}
           </div>
         </div>
 
@@ -600,7 +701,7 @@ export const App: React.FC = () => {
       {/* ===== التايملاين ===== */}
       {showTimeline && (
         <section className="timeline-dock" aria-label="التايملاين">
-          <Timeline tracks={tracks} total={total} fps={fps} frame={frame} onSeek={seek} />
+          <Timeline tracks={tracks} total={total} fps={fps} frame={frame} onSeek={seek} tools={timelineTools} />
         </section>
       )}
     </div>
