@@ -77,14 +77,48 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
 export const freeImage = (args) => queued(() => freeImageNow(args));
 
+// بمفتاح: الخدمة الجديدة (gen.pollinations.ai) فورية ومن غير علامة مائية
+// المفتاح لازم يكون مسموح له بموديلات الصور (من enter.pollinations.ai). لو مش شغال بنكمل ببلاش من غير مفتاح
+const genUrl = (prompt, w, h, seed) => `https://gen.pollinations.ai/image/${encodeURIComponent(prompt.slice(0, 1800))}?width=${w}&height=${h}&seed=${seed}&model=flux&nologo=true`;
+export const pollinationsKeyProblem = (status, body = "") => {
+  if (status === 401) return "مفتاح Pollinations غلط";
+  if (/does not allow image models|not allowed for this API key/i.test(body)) return "مفتاح Pollinations مش مسموح له بالصور: افتح enter.pollinations.ai ← المفتاح ← Edit وفعّل موديلات الصور (Image)";
+  if (status === 402 || /pollen|balance|insufficient/i.test(body)) return "رصيد Pollinations خلص (Pollen). استنى التجديد أو كمّل من غير مفتاح";
+  if (status === 403) return "مفتاح Pollinations مش مسموح له بالطلب ده (راجع صلاحياته من enter.pollinations.ai)";
+  return null;
+};
+let keyBroken = null; // لو المفتاح اترفض مرة، بنكمل من غير مفتاح لحد ما يتغير
+
 const freeImageNow = async ({ prompt, size = "reel", seed = 1, dest, onProgress }) => {
   const [w, h] = SIZES[size] ?? SIZES.reel;
+  const tmp = path.join(os.tmpdir(), `montag-free-${Date.now()}-${seed}.jpg`);
+  const token = process.env.POLLINATIONS_TOKEN;
+  if (token && keyBroken !== token) {
+    onProgress?.("بيرسم الصورة (Pollinations)");
+    try {
+      const r = await fetch(genUrl(prompt, w, h, seed), { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000) });
+      const type = r.headers.get("content-type") ?? "";
+      if (r.ok && type.startsWith("image/")) {
+        fs.writeFileSync(tmp, Buffer.from(await r.arrayBuffer()));
+        await run(["-y", "-v", "error", "-i", tmp, "-vf", `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`, "-q:v", "2", dest]);
+        return dest;
+      }
+      const problem = pollinationsKeyProblem(r.status, await r.text().catch(() => ""));
+      if (problem) {
+        keyBroken = token;
+        console.warn(`Pollinations: ${problem}. بنكمل من غير مفتاح`);
+      }
+    } catch {
+      // شبكة: نجرب الطريق المجاني
+    } finally {
+      tryRemove(tmp);
+    }
+  }
   // بنطلب الصورة أطول 8٪ عشان نقص شريط العلامة المائية اللي تحت من غير ما النسبة تبوظ
   const H = Math.round(h * 1.08);
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.slice(0, 1800))}?width=${w}&height=${H}&seed=${seed}&model=flux&nologo=true&enhance=false`;
-  const tmp = path.join(os.tmpdir(), `montag-free-${Date.now()}-${seed}.jpg`);
-  const token = process.env.POLLINATIONS_TOKEN;
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  // الخدمة القديمة بترفض أي طلب فيه مفتاح، فالطريق المجاني من غير مفتاح خالص
+  const headers = {};
   let last = null;
   const started = Date.now();
   for (let attempt = 1; attempt <= 30; attempt++) {
@@ -95,7 +129,11 @@ const freeImageNow = async ({ prompt, size = "reel", seed = 1, dest, onProgress 
       const type = r.headers.get("content-type") ?? "";
       if (r.status === 402 || r.status === 429) {
         // زحمة/حد الاستخدام المجاني: مش غلط، بنستنى بس
-        last = new FreeError("الخدمة المجانية زحمة دلوقتي. حط مفتاح Pollinations المجاني من ⚙️ الإعدادات عشان متستناش");
+        last = new FreeError(
+          token && keyBroken === token
+            ? "الخدمة المجانية زحمة، ومفتاح Pollinations مش شغال للصور. فعّل موديلات الصور للمفتاح من enter.pollinations.ai"
+            : "الخدمة المجانية زحمة دلوقتي. حط مفتاح Pollinations المجاني من ⚙️ الإعدادات عشان متستناش",
+        );
         await r.arrayBuffer().catch(() => {});
         await sleep(8000);
         continue;

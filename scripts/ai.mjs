@@ -1,6 +1,7 @@
 // الذكاء الاصطناعي جوه الاستوديو (المرحلة 5) عن طريق Claude API
 // المفتاح: ANTHROPIC_API_KEY (بيتحط من شاشة الإعدادات، وبيتحفظ في .env)
 import Anthropic from "@anthropic-ai/sdk";
+import { claudeError } from "./keys.mjs";
 
 const MODEL = "claude-opus-5-5";
 
@@ -12,9 +13,12 @@ const isMock = () => process.env.AI_MOCK === "1";
 let client = null;
 let clientKey = null;
 const getClient = () => {
-  if (!client || clientKey !== process.env.ANTHROPIC_API_KEY) {
-    clientKey = process.env.ANTHROPIC_API_KEY;
-    client = new Anthropic();
+  // المفتاح أو رقم الـ Workspace اتغيروا من الإعدادات؟ عميل جديد
+  const key = `${process.env.ANTHROPIC_API_KEY}|${process.env.ANTHROPIC_WORKSPACE_ID ?? ""}`;
+  if (!client || clientKey !== key) {
+    clientKey = key;
+    const ws = process.env.ANTHROPIC_WORKSPACE_ID;
+    client = new Anthropic(ws ? { defaultHeaders: { "anthropic-workspace-id": ws } } : {});
   }
   return client;
 };
@@ -49,6 +53,9 @@ const askJson = async ({ system, user, schema, effort = "medium", maxTokens = 16
     if (e instanceof Anthropic.AuthenticationError) throw new AiError("مفتاح Claude غلط. غيّره من ⚙️ الإعدادات");
     if (e instanceof Anthropic.PermissionDeniedError) throw new AiError("المفتاح ده مش مسموح له يستخدم الموديل");
     if (e instanceof Anthropic.RateLimitError) throw new AiError("طلبات كتير ورا بعض، استنى دقيقة وجرب تاني");
+    // أخطاء معروفة (المفتاح مش تبع Workspace، الرصيد خلص…) بالعربي وبتقولك تعمل إيه
+    const known = e instanceof Anthropic.APIError ? claudeError(e.status, String(e.message ?? "")) : null;
+    if (known && !/^Claude رجّع/.test(known)) throw new AiError(known);
     if (e instanceof Anthropic.BadRequestError) throw new AiError(`الطلب مش مظبوط: ${e.message}`);
     if (e instanceof Anthropic.APIConnectionError) throw new AiError("مش قادر أوصل لـ Claude، اتأكد من النت");
     if (e instanceof Anthropic.APIError) throw new AiError(`Claude رجّع خطأ ${e.status}`);

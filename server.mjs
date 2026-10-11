@@ -19,7 +19,7 @@ import { createFilm, filmStatus, FilmError } from "./scripts/film.mjs";
 import { MODELS } from "./scripts/models.mjs";
 import { cleanAudio } from "./scripts/audio.mjs";
 import { generateSound, SoundError } from "./scripts/sound.mjs";
-import { createKeyStore } from "./scripts/keys.mjs";
+import { claudeError, createKeyStore } from "./scripts/keys.mjs";
 import { createBroll, BrollError } from "./scripts/broll.mjs";
 import { tryRemove } from "./scripts/fsutil.mjs";
 import { exploreVideos, ShotsError } from "./scripts/shots.mjs";
@@ -483,7 +483,9 @@ const aiRoute = (handler) => async (req, res) => {
     res.json(await handler(req.body ?? {}));
   } catch (e) {
     console.error(e);
-    res.status(e instanceof AiError ? 400 : 500).json({ error: e instanceof AiError ? e.message : "حصلت مشكلة في الذكاء الاصطناعي" });
+    // أخطاء Claude نفسه (Workspace، رصيد…) بنقولها بالعربي بدل رسالة عامة
+    const known = e?.status ? claudeError(e.status, String(e?.message ?? "")) : null;
+    res.status(e instanceof AiError ? 400 : 500).json({ error: e instanceof AiError ? e.message : known && !/^Claude رجّع/.test(known) ? known : "حصلت مشكلة في الذكاء الاصطناعي" });
   }
 };
 
