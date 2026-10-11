@@ -9,7 +9,7 @@ import { assetSrc, musicVolume } from "./lib/media";
 import type { Scene } from "./scenes/defs";
 import { sceneRenderers, type Theme } from "./scenes/renderers";
 import { LayersView } from "./scenes/layers";
-import { SoundFxLayer, type SoundFxItem } from "./lib/soundFx";
+import { rangeGain, SoundFxLayer, type SoundFxItem, type VolRange } from "./lib/soundFx";
 
 export type ProjectProps = {
   format: string;
@@ -28,6 +28,7 @@ export type ProjectProps = {
   accent: string;
   scenes: Scene[];
   soundFx: SoundFxItem[];
+  musicRanges?: VolRange[];
 };
 
 const FPS = 30;
@@ -106,7 +107,7 @@ export const ProjectVideo: React.FC<ProjectProps> = (p) => {
         <Html5Audio
           src={assetSrc(p.music)}
           loop
-          volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps)}
+          volume={(f) => musicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps) * rangeGain((f / fps) * 1000, p.musicRanges)}
         />
       )}
       {p.sfx !== "off" && (

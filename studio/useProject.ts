@@ -25,6 +25,9 @@ const blankProject = (videoId: string, name: string): Project => ({
 const store = {
   get: () => {
     try {
+      // لينك مباشر لمشروع (?project=رقمه): مفيد لفتح مشروع معيّن من الموبايل
+      const linked = new URLSearchParams(location.search).get("project");
+      if (linked && /^[a-z0-9]{4,32}$/.test(linked)) return linked;
       return localStorage.getItem(LAST_KEY);
     } catch {
       return null;

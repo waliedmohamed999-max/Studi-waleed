@@ -23,6 +23,10 @@ export type TlTrack = {
   kind: "video" | "audio" | "text";
   blocks: TlBlock[];
   onBlockClick?: (id: string, start: number) => void;
+  // لو موجود: البلوك بيتسحب يمين وشمال عشان يتنقل لمكان تاني في الوقت (المقاطع الصوتية)
+  movable?: { onMove: (id: string, startFrame: number) => void };
+  // فترات معلّمة على المسار (زي علّي/وطّي الصوت هنا)
+  marks?: { id: string; from: number; frames: number; label: string; up: boolean }[];
   // لو موجود: البلوكات بتتسحب وتتطول وتتقصر
   editable?: {
     onResize: (id: string, seconds: number) => void;
@@ -52,6 +56,34 @@ export const Timeline: React.FC<{
   const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<{ track: string; from: number; over: number | null } | null>(null);
   const [resizing, setResizing] = useState<string | null>(null);
+  const [moving, setMoving] = useState<{ id: string; dx: number } | null>(null);
+
+  // سحب بلوك لمكان تاني في الوقت (بالماوس أو بالصباع). الضغط من غير سحب = اختيار عادي
+  const startMove = (e: React.PointerEvent, track: TlTrack, block: TlBlock) => {
+    if (!track.movable) return;
+    const r = innerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const framesPerPx = total / r.width;
+    const startX = e.clientX;
+    let dx = 0;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) < 4) return;
+      moved = true;
+      dx = Math.round((ev.clientX - startX) * framesPerPx);
+      dx = Math.max(-block.start, Math.min(total - 1 - block.start, dx));
+      setMoving({ id: block.id, dx });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setMoving(null);
+      if (moved && dx) track.movable!.onMove(block.id, block.start + dx);
+      else track.onBlockClick?.(block.id, block.start);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const pct = (f: number) => `${(f / Math.max(1, total)) * 100}%`;
   const frameAt = (clientX: number) => {
@@ -152,6 +184,11 @@ export const Timeline: React.FC<{
                 className={`tl-lane tl-lane-${track.kind}`}
                 onPointerDown={(e) => e.target === e.currentTarget && onSeek(frameAt(e.clientX))}
               >
+                {(track.marks ?? []).map((m) => (
+                  <span key={m.id} className={`tl-mark ${m.up ? "up" : "down"}`} style={{ left: pct(m.from), width: pct(m.frames) }} title={m.label}>
+                    {m.label}
+                  </span>
+                ))}
                 {track.blocks.map((b, i) => {
                   const draggable = !!track.editable && !resizing;
                   const isOver = drag?.track === track.id && drag.over === i && drag.from !== i;
@@ -162,8 +199,9 @@ export const Timeline: React.FC<{
                       tabIndex={0}
                       aria-label={`${b.label} (${(b.frames / fps).toFixed(1)} ثانية)`}
                       aria-pressed={b.selected}
-                      className={`tl-block ${b.selected ? "selected" : ""} ${isOver ? "drag-over" : ""} ${resizing === b.id ? "resizing" : ""}`}
-                      style={{ left: pct(b.start), width: pct(b.frames), "--block-color": b.color } as React.CSSProperties}
+                      className={`tl-block ${b.selected ? "selected" : ""} ${isOver ? "drag-over" : ""} ${resizing === b.id ? "resizing" : ""} ${track.movable ? "movable" : ""} ${moving?.id === b.id ? "moving" : ""}`}
+                      style={{ left: pct(b.start + (moving?.id === b.id ? moving.dx : 0)), width: pct(b.frames), "--block-color": b.color } as React.CSSProperties}
+                      onPointerDown={track.movable ? (e) => startMove(e, track, b) : undefined}
                       title={`${b.label} · ${(b.frames / fps).toFixed(1)}s`}
                       draggable={draggable}
                       onDragStart={(e) => {
@@ -181,7 +219,7 @@ export const Timeline: React.FC<{
                         setDrag(null);
                       }}
                       onDragEnd={() => setDrag(null)}
-                      onClick={() => track.onBlockClick?.(b.id, b.start)}
+                      onClick={track.movable ? undefined : () => track.onBlockClick?.(b.id, b.start)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();

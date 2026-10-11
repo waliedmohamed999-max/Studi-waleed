@@ -11,7 +11,7 @@ import { buildSegments, rangeToOut, refineWords, remapWords, resolveRange, sourc
 import { faceAt, faceFraming, type FacePoint } from "./autoedit/face";
 import { gradeFilter } from "./lib/grades";
 import { EmojiPops, type EmojiItem } from "./lib/emoji";
-import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
+import { duckedMusicVolume, rangeGain, SoundFxLayer, speechSpans, type SoundFxItem, type VolRange } from "./lib/soundFx";
 
 // لقطة B-roll: بتظهر فوق الكلام في فترة معينة (بتوقيت الفيديو الأصلي)، والصوت بيكمل عادي
 export type Broll = TimeRange & {
@@ -88,6 +88,10 @@ export type AutoEditProps = {
   // مؤثرات صوتية في لحظات معينة، وخفض المزيكا وقت الكلام
   soundFx: SoundFxItem[];
   duckMusic: string; // on | off
+  // فترات صوت: علّي هنا ووطّي هنا (بتوقيت الفيديو النهائي)
+  musicRanges?: VolRange[];
+  mediaRanges?: VolRange[];
+
   // كلام غلط اتقال تاني بصوتك
   voiceFixes: VoiceFix[];
   // فيديوهات اللقطات للمونتاج الاحترافي بضغطة
@@ -164,7 +168,9 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
   const base = Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100;
   const edge = (f: number) => Math.max(0, Math.min(1, f / 3, (frames - f) / 3));
   const fixes = activeFixes(p).filter((x) => x.fromMs < seg.toMs && x.toMs > seg.fromMs);
-  const vol = (f: number) => base * edge(f) * (fixes.length ? originalGain(seg.fromMs + (f / fps) * 1000, fixes) : 1);
+  // فترات صوت الفيديو بتتحسب بتوقيت الفيديو النهائي (المقطع ده بيبدأ عند seg.outMs)
+  const outGain = (f: number) => rangeGain(seg.outMs + (f / fps) * 1000, p.mediaRanges);
+  const vol = (f: number) => base * edge(f) * outGain(f) * (fixes.length ? originalGain(seg.fromMs + (f / fps) * 1000, fixes) : 1);
   const trimBefore = Math.round((seg.fromMs / 1000) * fps);
 
   // الصورة: الفيديو المدبلج (لو الشفايف اتحركت)، أو الشخص من غير خلفية، أو الأصل
@@ -196,7 +202,7 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
         const len = Math.max(1, Math.round(((Math.min(x.toMs, seg.toMs) - seg.fromMs) / 1000) * fps) - from);
         return (
           <Sequence key={x.id} from={from} durationInFrames={len}>
-            <Html5Audio src={assetSrc(x.audio)} trimBefore={Math.round(((start - x.fromMs) / 1000) * fps)} volume={(f) => base * edge(from + f)} />
+            <Html5Audio src={assetSrc(x.audio)} trimBefore={Math.round(((start - x.fromMs) / 1000) * fps)} volume={(f) => base * edge(from + f) * outGain(from + f)} />
           </Sequence>
         );
       })}
@@ -339,7 +345,7 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
         <Html5Audio
           src={assetSrc(p.music)}
           loop
-          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans)}
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans, p.musicRanges)}
         />
       )}
     </AbsoluteFill>

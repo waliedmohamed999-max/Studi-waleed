@@ -8,7 +8,7 @@ import { getFormat } from "./lib/formats";
 import { assetSrc, musicVolume } from "./lib/media";
 import { gradeFilter } from "./lib/grades";
 import { CaptionsLayer } from "./CaptionedVideo";
-import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
+import { duckedMusicVolume, rangeGain, SoundFxLayer, speechSpans, type SoundFxItem, type VolRange } from "./lib/soundFx";
 import type { Highlight, TimeRange } from "./autoedit/edl";
 
 export type PodcastCam = {
@@ -61,6 +61,10 @@ export type PodcastProps = {
   splitOnBoth: string;
   soundFx: SoundFxItem[];
   duckMusic: string;
+  // فترات صوت: علّي هنا ووطّي هنا (بتوقيت الفيديو النهائي)
+  musicRanges?: VolRange[];
+  mediaRanges?: VolRange[];
+
   // تحديد المتكلم من حركة الشفايف (لما المايك مشترك): كل كاميرا ليها حركة بق كل 100ms بوقتها هي
   mouth: (number | null)[][];
   speakerBy: string; // audio | mouth
@@ -233,13 +237,13 @@ export const PodcastVideo: React.FC<PodcastProps> = (p) => {
         />
       )}
 
-      {audioSrc && <Html5Audio src={assetSrc(audioSrc)} trimBefore={Math.max(0, Math.round(((w.fromMs + audioOffset) / 1000) * fps))} volume={Math.max(0, Math.min(100, p.audioVolume ?? 100)) / 100} />}
+      {audioSrc && <Html5Audio src={assetSrc(audioSrc)} trimBefore={Math.max(0, Math.round(((w.fromMs + audioOffset) / 1000) * fps))} volume={(f) => (Math.max(0, Math.min(100, p.audioVolume ?? 100)) / 100) * rangeGain((f / fps) * 1000, p.mediaRanges)} />}
       <SoundFxLayer items={p.soundFx ?? []} />
       {p.music && (
         <Html5Audio
           src={assetSrc(p.music)}
           loop
-          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" || !captionSpans.length ? null : captionSpans)}
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" || !captionSpans.length ? null : captionSpans, p.musicRanges)}
         />
       )}
     </AbsoluteFill>

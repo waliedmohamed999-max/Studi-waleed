@@ -17,7 +17,7 @@ import { getFormat } from "./lib/formats";
 import { assetSrc, KenBurnsImage, musicVolume } from "./lib/media";
 import { gradeFilter } from "./lib/grades";
 import { EmojiPops, type EmojiItem } from "./lib/emoji";
-import { duckedMusicVolume, SoundFxLayer, speechSpans, type SoundFxItem } from "./lib/soundFx";
+import { duckedMusicVolume, rangeGain, SoundFxLayer, speechSpans, type SoundFxItem, type VolRange } from "./lib/soundFx";
 
 export type CaptionStyle = "tiktok" | "pop" | "karaoke" | "subtitle" | "bold" | "beast" | "boxed" | "neon" | "minimal" | "typewriter";
 
@@ -52,6 +52,10 @@ export type CaptionedProps = {
   showEmojis: string;
   soundFx: SoundFxItem[];
   duckMusic: string;
+  // فترات صوت: علّي هنا ووطّي هنا (بتوقيت الفيديو النهائي)
+  musicRanges?: VolRange[];
+  mediaRanges?: VolRange[];
+
 };
 
 const FPS = 30;
@@ -283,7 +287,7 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
           <OffthreadVideo
             src={assetSrc(p.media)}
             muted={!!p.cleanAudio}
-            volume={p.cleanAudio ? 0 : Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100}
+            volume={p.cleanAudio ? 0 : (f) => (Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100) * rangeGain((f / fps) * 1000, p.mediaRanges)}
             style={{ width: "100%", height: "100%", objectFit: p.fit === "contain" ? "contain" : "cover" }}
           />
         ) : (
@@ -291,13 +295,13 @@ export const CaptionedVideo: React.FC<CaptionedProps> = (p) => {
         )}
       </AbsoluteFill>
       {(hasAudio || (hasVideo && p.cleanAudio)) && (
-        <Html5Audio src={assetSrc(p.cleanAudio || p.media)} volume={Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100} />
+        <Html5Audio src={assetSrc(p.cleanAudio || p.media)} volume={(f) => (Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100) * rangeGain((f / fps) * 1000, p.mediaRanges)} />
       )}
       {p.music && (
         <Html5Audio
           src={assetSrc(p.music)}
           loop
-          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans)}
+          volume={(f) => duckedMusicVolume(f, durationInFrames, Math.max(0, Math.min(100, p.musicVolume)) / 100, fps, p.duckMusic === "off" ? null : spans, p.musicRanges)}
         />
       )}
 

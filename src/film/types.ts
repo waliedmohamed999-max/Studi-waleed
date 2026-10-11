@@ -1,6 +1,6 @@
 // أنواع بيانات "مخرج الأفلام" (المرحلة 7): شخصيات، لقطات، صور مرفوعة، وصوت
 import type { Caption } from "@remotion/captions";
-import type { SoundFxItem } from "../lib/soundFx";
+import type { SoundFxItem, VolRange } from "../lib/soundFx";
 
 export type FilmCharacter = {
   id: string;
@@ -88,6 +88,7 @@ export type FilmProps = {
   auto: boolean; // "اعمل كل حاجة" شغال (بيكمل حتى لو الصفحة اتقفلت واتفتحت)
   autoBatch: string; // رقم دفعة التصدير لما الوضع الأوتوماتيك يخلص
   soundFx: SoundFxItem[]; // مؤثرات صوتية إضافية في لحظات معينة
+  musicRanges?: VolRange[]; // علّي ووطّي المزيكا في أماكن
   // السيناريو المجاني (من غير Claude): وصف الشخص والمكان، والكلام (كل سطر لقطة)
   freePerson?: string;
   freePlace?: string;

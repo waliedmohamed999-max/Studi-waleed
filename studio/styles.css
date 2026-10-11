@@ -3268,3 +3268,483 @@ button.chip {
   background: var(--accent-text);
   border-color: var(--accent-text);
 }
+
+/* =========================================================
+   الموبايل (أقل من 760px): زي التطبيقات
+   فوق شريط صغير، تحته المعاينة ثابتة، وفي النص لوحة الأداة بتتزحلق جواها،
+   وتحت خالص تبويبات الأدوات ثابتة. الصفحة نفسها مبتتزحلقش
+   ========================================================= */
+.phone-only {
+  display: none;
+}
+@media (max-width: 760px) {
+  html,
+  body {
+    overflow: hidden;
+  }
+  .studio {
+    --top-h: 52px;
+    --nav-h: 58px;
+    height: 100dvh;
+    min-height: 0;
+    overflow: clip;
+    grid-template-columns: minmax(0, 1fr);
+    /* الأقسام فوق تحت اسم المشروع على طول: ظاهرة دايمًا حتى لو آخر الشاشة مش باين (أدوات المطور، شاشة متكبّرة…) */
+    grid-template-rows: var(--top-h) var(--nav-h) auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "top"
+      "rail"
+      "viewer"
+      "tool"
+      "tl";
+  }
+  .studio.no-tool {
+    grid-template-rows: var(--top-h) var(--nav-h) minmax(0, 1fr) 0 auto;
+  }
+
+  /* ===== الشريط العلوي: اسم المشروع + تراجع + تصدير ===== */
+  .topbar {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 0 12px;
+    padding-top: env(safe-area-inset-top);
+  }
+  .tb-start {
+    flex: 1;
+    min-width: 0;
+    gap: 6px;
+  }
+  .brandmark span,
+  .tb-sep,
+  .tb-center,
+  .tb-end .icon-btn[aria-label="لوحة الأدوات"],
+  .tb-end .icon-btn[aria-label="لوحة الخصائص"],
+  .tb-end .icon-btn[aria-label="التايملاين"] {
+    display: none;
+  }
+  .tb-project {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    font-size: var(--fs-l);
+    font-weight: 700;
+  }
+  /* حالة الحفظ: نقطة صغيرة بدل الكلام */
+  .tb-save {
+    font-size: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    flex: none;
+    background: transparent;
+  }
+  .tb-save.save-saved {
+    background: var(--ok);
+  }
+  .tb-save.save-dirty,
+  .tb-save.save-saving {
+    background: var(--warn);
+  }
+  .tb-save.save-error {
+    background: var(--err);
+  }
+  .tb-end {
+    gap: 4px;
+    flex: none;
+  }
+  .btn-export {
+    padding: 0 12px;
+    height: 36px;
+  }
+
+  /* ===== المعاينة: حجم ثابت مناسب للموبايل ===== */
+  .viewer-head {
+    display: none;
+  }
+  /* المعاينة على قد شكل الفيديو: العرضي بياخد مساحة أقل فلوحة الأداة تكبر */
+  .viewer-stage {
+    height: min(38dvh, 340px, calc((100vw - 24px) / var(--aspect, 0.5625)));
+    flex: none;
+    margin: 8px 12px 0;
+  }
+  .transport-bar {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "tc transport opts";
+    height: 48px;
+    padding: 0 8px;
+    row-gap: 0;
+  }
+  .transport-bar .transport {
+    justify-content: center;
+    gap: 2px;
+  }
+  /* فريم لورا/لقدام مالهمش لازمة بالصباع، والسرعة بتتغير من التايملاين */
+  .transport .icon-btn[aria-label="فريم لورا"],
+  .transport .icon-btn[aria-label="فريم لقدام"],
+  .transport-opts .speed,
+  .transport-opts .icon-btn[aria-label="تكرار"] {
+    display: none;
+  }
+  .phone-only {
+    display: inline-grid;
+  }
+  .tc {
+    font-size: var(--fs-s);
+  }
+
+  /* ===== لوحة الأداة: باقي الشاشة ===== */
+  .toolpanel {
+    max-height: none;
+    border-top: 1px solid var(--line);
+  }
+  .toolpanel .panel-head {
+    height: 40px;
+    padding: 0 16px;
+  }
+  .toolpanel .panel-body {
+    padding: 12px 16px 24px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* الحاجات اللي جنب بعض بتنزل تحت بعض عشان متطلعش برا الشاشة */
+  .toolpanel .row-3 {
+    grid-template-columns: 1fr;
+  }
+  .toolpanel img,
+  .toolpanel video,
+  .toolpanel table {
+    max-width: 100%;
+  }
+  .format-picker {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* ===== التايملاين: بيتفتح بزرار تحت المعاينة ===== */
+  .timeline-dock {
+    height: 200px;
+    border-top: 1px solid var(--line);
+  }
+  .tl-toolbar {
+    gap: 6px;
+    padding: 0 8px;
+    overflow: hidden;
+  }
+  .tl-toolbar button,
+  .tl-btn {
+    white-space: nowrap;
+    flex: none;
+  }
+  .tl-tools {
+    margin-inline-start: 4px;
+  }
+  .tl-zoom input {
+    width: 64px;
+  }
+  /* أسامي المسارات: أيقونة بس، عشان المسارات نفسها تاخد العرض */
+  .tl-heads {
+    width: 40px;
+  }
+  .tl-head {
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+
+  /* ===== تبويبات الأدوات تحت (زي التطبيقات) ===== */
+  .rail {
+    position: relative;
+    z-index: 30;
+    height: var(--nav-h);
+    flex-direction: row;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 6px;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ===== لوحة "المزيد": كل الأقسام، بتطلع من تحت فوق الشريط ===== */
+  .studio {
+    position: relative;
+  }
+  .more-sheet {
+    position: absolute;
+    inset: 0;
+    top: calc(var(--top-h) + var(--nav-h));
+    z-index: 40;
+    display: flex;
+    align-items: flex-start;
+    background: rgba(0, 0, 0, 0.55);
+    animation: more-fade 0.15s ease-out;
+  }
+  .more-panel {
+    width: 100%;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line-strong);
+    border-radius: 0 0 16px 16px;
+    padding: 14px 16px 16px;
+    max-height: 100%;
+    overflow-y: auto;
+    animation: more-down 0.18s ease-out;
+  }
+  .more-handle {
+    display: none;
+  }
+  .more-panel h2 {
+    margin: 0 0 12px;
+    font-size: var(--fs-l);
+  }
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .more-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-l);
+    background: var(--surface);
+    color: var(--text);
+    font-size: var(--fs-s);
+    font-weight: 600;
+  }
+  .more-item.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  .more-row {
+    margin-top: 12px;
+  }
+  .more-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-l);
+    background: var(--surface);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .more-toggle.on {
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+  @keyframes more-down {
+    from {
+      transform: translateY(-16px);
+      opacity: 0;
+    }
+  }
+  @keyframes more-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  /* 5 أزرار بالتساوي على عرض الشاشة (الأقسام التانية في "المزيد") */
+  .rail-item {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    padding: 6px 2px 4px;
+    justify-content: center;
+  }
+  .rail-item.phone-more {
+    display: none;
+  }
+  .rail-item.phone-only {
+    display: flex;
+  }
+  .rail-item span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .rail-item {
+    flex-direction: row;
+    gap: 6px;
+  }
+  .rail-item svg {
+    flex: none;
+    width: 18px;
+    height: 18px;
+  }
+  .rail-item.active::before {
+    display: block;
+    inset-inline: 14px;
+    top: auto;
+    bottom: -4px;
+    width: auto;
+    height: 3px;
+  }
+
+  /* الأزرار والخانات أكبر شوية عشان الصباع */
+  .icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* أقل من 16 الآيفون بيعمل زووم لوحده لما تكتب */
+  }
+}
+
+/* ===== المقاطع الصوتية على التايملاين ===== */
+.tl-block.movable {
+  cursor: grab;
+  touch-action: none;
+}
+.tl-block.moving {
+  cursor: grabbing;
+  opacity: 0.85;
+  z-index: 3;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* فترات الصوت: شريط رفيع فوق المسار، أخضر = أعلى، برتقاني = أوطى */
+.tl-mark {
+  position: absolute;
+  top: 0;
+  height: 14px;
+  z-index: 2;
+  pointer-events: none;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 3px;
+  color: #04120c;
+}
+.tl-mark.up {
+  background: rgba(52, 211, 153, 0.85);
+}
+.tl-mark.down {
+  background: rgba(251, 191, 36, 0.85);
+}
+
+/* ===== المقاطع الصوتية وفترات الصوت ===== */
+.clip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clip-row {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.clip-row.open {
+  border-color: var(--accent);
+}
+.clip-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.clip-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  padding: 4px;
+}
+.clip-title b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-title small {
+  color: var(--muted);
+}
+.clip-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+.clip-at {
+  display: flex;
+  gap: 4px;
+}
+.clip-at input {
+  min-width: 0;
+  flex: 1;
+}
+.vol-ranges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vol-range {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--r-s);
+  background: var(--surface);
+  border-inline-start: 3px solid var(--warn);
+}
+.vol-range.up {
+  border-inline-start-color: var(--ok);
+}
+.vol-range-times {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vol-range-times label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-s);
+  color: var(--muted);
+}
+.vol-range-times input {
+  width: 64px;
+}
+.vol-range-times .link-btn {
+  margin-inline-start: auto;
+}
+.vol-range-level {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-s);
+}
+.vol-range-level input {
+  accent-color: var(--accent);
+}
+.vol-range-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.track-ranges .seg-toggle {
+  margin-bottom: 6px;
+}

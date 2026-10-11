@@ -55,10 +55,10 @@ import {
   IconSend,
   IconSettings,
   IconCalendar,
-  IconFiles,
+  IconFiles, IconGrid,
 } from "./icons";
 import { SettingsTool } from "./SettingsTool";
-import type { SoundFxItem } from "../src/lib/soundFx";
+import { clipMs, type SoundFxItem, type VolRange } from "../src/lib/soundFx";
 import { PodcastPanel, camColors, camName } from "./PodcastPanel";
 import { podcastShots, podcastWindow, type PodcastProps, type PodcastShot } from "../src/PodcastVideo";
 import { PlanTool } from "./PlanTool";
@@ -94,10 +94,20 @@ const tools: { id: Tool; label: string; icon: ReactNode; narrowOnly?: boolean }[
   { id: "settings", label: "الإعدادات", icon: <IconSettings size={20} /> },
   { id: "inspect", label: "الخصائص", icon: <IconSliders size={20} />, narrowOnly: true },
 ];
+// القوالب اللي بتدعم "علّي ووطّي الصوت في أماكن": المزيكا، وصوت الفيديو نفسه
+const musicRangeVideos = new Set(["AutoEdit", "Captioned", "Podcast", "Film", "Project"]);
+const mediaRangeVideos = new Set(["AutoEdit", "Captioned", "Podcast"]);
+
+// الموبايل: 4 أقسام ظاهرة على طول في الشريط اللي تحت، والباقي في لوحة "المزيد"
+const phoneTabs: Tool[] = ["content", "inspect", "sound", "export"];
+
+// نفس مقاس الموبايل في styles.css
+const isPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+
 const toolTitle: Record<Tool, string> = {
   content: "المحتوى",
   ai: "الذكاء الاصطناعي",
-  sound: "مزيكا ومؤثرات بالذكاء الاصطناعي",
+  sound: "الصوتيات: مزيكا ومقاطع وعلوّ الصوت",
   library: "مكتبة الملفات",
   plan: "خطة المحتوى",
   project: "المشاريع",
@@ -151,7 +161,12 @@ export const App: React.FC = () => {
   const [tool, setTool] = useState<Tool>("content");
   const [showTool, setShowTool] = useState(true);
   const [showInspector, setShowInspector] = useState(true);
-  const [showTimeline, setShowTimeline] = useState(true);
+  // الموبايل: الشاشة مبتكفيش تايملاين، فبيبدأ مقفول ويتفتح بزرار تحت المعاينة
+  const [showTimeline, setShowTimeline] = useState(() => !isPhone());
+  const toolBodyRef = useRef<HTMLDivElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  // المقطع الصوتي اللي مفتوح للتعديل (من التايملاين أو من أداة الصوتيات)
+  const [selectedClip, setSelectedClip] = useState<string | null>(null);
   // مناطق الأمان: بتوري الأماكن اللي واجهة المنصة هتغطيها
   const [safeZone, setSafeZone] = useState<PlatformId | "">("");
   const [arabicUi, setArabicUi] = useState(true);
@@ -164,6 +179,14 @@ export const App: React.FC = () => {
   );
 
   const openTool = (t: Tool) => {
+    // الموبايل: لوحة الأداة هي محتوى الشاشة، فالضغط على نفس التبويب بيرجّعها لأولها بدل ما يقفلها
+    if (isPhone()) {
+      setMoreOpen(false);
+      setTool(t);
+      setShowTool(true);
+      toolBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     if (t === tool && showTool) setShowTool(false);
     else {
       setTool(t);
@@ -499,16 +522,47 @@ export const App: React.FC = () => {
   if (fxList.length) {
     tracks.push({
       id: "fx",
-      label: "المؤثرات",
+      label: "مقاطع صوت",
       icon: <IconMusic size={14} />,
       kind: "audio",
-      blocks: fxList.map((f) => ({ id: f.id, start: Math.round((f.atMs / 1000) * fps), frames: Math.round(fps * 0.8), label: f.label || fileName(f.src), color: "#14b8a6" })),
-      onBlockClick: (_id, start) => seek(start),
+      blocks: fxList.map((f) => ({
+        id: f.id,
+        start: Math.round((f.atMs / 1000) * fps),
+        frames: Math.max(Math.round(fps * 0.5), Math.round(((clipMs(f) ?? 800) / 1000) * fps)),
+        label: f.label || fileName(f.src),
+        color: "#14b8a6",
+        selected: selectedClip === f.id,
+      })),
+      onBlockClick: (id, start) => {
+        setSelectedClip(id);
+        setTool("sound");
+        setShowTool(true);
+        seek(start);
+      },
+      movable: {
+        onMove: (id, startFrame) =>
+          updateProps((prev) => ({ ...prev, soundFx: ((prev.soundFx as SoundFxItem[]) ?? []).map((x) => (x.id === id ? { ...x, atMs: Math.round((startFrame / fps) * 1000) } : x)) })),
+      },
     });
   }
   if (typeof props.music === "string" && props.music) {
     tracks.push({ id: "music", label: "المزيكا", icon: <IconMusic size={14} />, kind: "audio", blocks: [{ id: "music", start: 0, frames: total, label: fileName(props.music), color: "#a855f7" }] });
   }
+
+  // فترات الصوت (علّي/وطّي هنا) على مساراتها
+  const markRanges = (trackIds: string[], ranges: VolRange[] | undefined) => {
+    const t = tracks.find((x) => trackIds.includes(x.id));
+    if (!t || !ranges?.length) return;
+    t.marks = ranges.map((r) => ({
+      id: r.id,
+      from: Math.round((r.fromMs / 1000) * fps),
+      frames: Math.max(1, Math.round(((r.toMs - r.fromMs) / 1000) * fps)),
+      label: `${r.volume}%`,
+      up: r.volume >= 100,
+    }));
+  };
+  if (musicRangeVideos.has(video.id)) markRanges(["music"], props.musicRanges as VolRange[] | undefined);
+  if (mediaRangeVideos.has(video.id)) markRanges(["media", "v1"], props.mediaRanges as VolRange[] | undefined);
 
   // ===== القص اليدوي (المونتاج الأوتوماتيك) =====
   const isAutoEdit = video.id === "AutoEdit";
@@ -665,6 +719,14 @@ export const App: React.FC = () => {
         onFxChange={(soundFx) => updateProps({ soundFx })}
         playheadMs={(frame / fps) * 1000}
         onSeekMs={(ms) => seek(Math.round((ms / 1000) * fps))}
+        selectedClip={selectedClip}
+        onSelectClip={setSelectedClip}
+        totalMs={(total / fps) * 1000}
+        ranges={{
+          music: musicRangeVideos.has(video.id) && typeof props.music === "string" && props.music ? ((props.musicRanges as VolRange[]) ?? []) : null,
+          media: mediaRangeVideos.has(video.id) && typeof props.media === "string" && props.media ? ((props.mediaRanges as VolRange[]) ?? []) : null,
+        }}
+        onRanges={(kind, next) => updateProps({ [kind === "music" ? "musicRanges" : "mediaRanges"]: next })}
       />
     ),
     project: <ProjectCard project={project} save={save} onRename={rename} onNew={newProject} onOpen={openProject} onDelete={deleteProject} />,
@@ -693,7 +755,10 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className={`studio ${showTool ? "" : "no-tool"} ${showInspector ? "" : "no-inspector"} ${showTimeline ? "" : "no-timeline"}`}>
+    <div
+      className={`studio ${showTool ? "" : "no-tool"} ${showInspector ? "" : "no-inspector"} ${showTimeline ? "" : "no-timeline"}`}
+      style={{ "--aspect": aspect } as React.CSSProperties}
+    >
       {/* ===== الشريط العلوي ===== */}
       <header className="topbar">
         <div className="tb-start">
@@ -751,7 +816,7 @@ export const App: React.FC = () => {
         {tools.map((t) => (
           <button
             key={t.id}
-            className={`rail-item ${t.narrowOnly ? "narrow-only" : ""} ${tool === t.id && showTool ? "active" : ""}`}
+            className={`rail-item ${t.narrowOnly ? "narrow-only" : ""} ${phoneTabs.includes(t.id) ? "" : "phone-more"} ${tool === t.id && showTool ? "active" : ""}`}
             onClick={() => openTool(t.id)}
             aria-pressed={tool === t.id && showTool}
           >
@@ -759,7 +824,42 @@ export const App: React.FC = () => {
             <span>{t.label}</span>
           </button>
         ))}
+        <button
+          type="button"
+          className={`rail-item phone-only rail-more ${moreOpen || !phoneTabs.includes(tool) ? "active" : ""}`}
+          onClick={() => setMoreOpen((v) => !v)}
+          aria-expanded={moreOpen}
+          aria-haspopup="dialog"
+        >
+          <IconGrid size={20} />
+          <span>المزيد</span>
+        </button>
       </nav>
+
+      {/* ===== الموبايل: كل الأقسام التانية ===== */}
+      {moreOpen && (
+        <div className="more-sheet" role="dialog" aria-label="كل الأقسام" onClick={() => setMoreOpen(false)}>
+          <div className="more-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="more-handle" aria-hidden="true" />
+            <h2>كل الأقسام</h2>
+            <div className="more-grid">
+              {tools
+                .filter((t) => !phoneTabs.includes(t.id))
+                .map((t) => (
+                  <button key={t.id} type="button" className={`more-item ${tool === t.id ? "active" : ""}`} onClick={() => openTool(t.id)}>
+                    {t.icon}
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+            </div>
+            <div className="more-row">
+              <button type="button" className={`more-toggle ${showTimeline ? "on" : ""}`} onClick={() => setShowTimeline((v) => !v)} aria-pressed={showTimeline}>
+                <IconPanelBottom size={18} /> التايملاين {showTimeline ? "ظاهر" : "مستخبي"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== لوحة الأداة ===== */}
       {showTool && (
@@ -767,7 +867,9 @@ export const App: React.FC = () => {
           <div className="panel-head">
             <h2>{toolTitle[tool]}</h2>
           </div>
-          <div className="panel-body">{toolBody[tool]}</div>
+          <div className="panel-body" ref={toolBodyRef}>
+            {toolBody[tool]}
+          </div>
         </aside>
       )}
 
@@ -870,6 +972,9 @@ export const App: React.FC = () => {
                 ))}
               </select>
             </label>
+            <button className={`icon-btn phone-only ${showTimeline ? "on" : ""}`} onClick={() => setShowTimeline((v) => !v)} aria-pressed={showTimeline} aria-label="التايملاين" title="التايملاين">
+              <IconPanelBottom />
+            </button>
             <button className="icon-btn" onClick={() => playerRef.current?.requestFullscreen()} aria-label="ملء الشاشة" title="ملء الشاشة">
               <IconMaximize />
             </button>

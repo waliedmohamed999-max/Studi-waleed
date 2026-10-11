@@ -5,7 +5,8 @@
 //   ✨ ولّد: مزيكا أو مؤثر بالوصف (ElevenLabs)
 import { useEffect, useMemo, useRef, useState } from "react";
 import { uid } from "../src/scenes/defs";
-import type { SoundFxItem } from "../src/lib/soundFx";
+import type { SoundFxItem, VolRange } from "../src/lib/soundFx";
+import { ClipList, TrackRanges } from "./AudioClips";
 import { runJob } from "./jobs";
 import { KeyHint, useKeysVersion } from "./settings";
 
@@ -75,7 +76,12 @@ export const SoundTool: React.FC<{
   onFxChange: (items: SoundFxItem[]) => void;
   playheadMs: number;
   onSeekMs: (ms: number) => void;
-}> = ({ canSetMusic, onUseMusic, canAddFx, onAddFx, fx, onFxChange, playheadMs, onSeekMs }) => {
+  selectedClip: string | null;
+  onSelectClip: (id: string | null) => void;
+  totalMs: number;
+  ranges: { music: VolRange[] | null; media: VolRange[] | null };
+  onRanges: (kind: "music" | "media", next: VolRange[]) => void;
+}> = ({ canSetMusic, onUseMusic, canAddFx, onAddFx, fx, onFxChange, playheadMs, onSeekMs, selectedClip, onSelectClip, totalMs, ranges, onRanges }) => {
   const [tab, setTab] = useState<Tab>("library");
   const [list, setList] = useState<Sound[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
@@ -110,14 +116,18 @@ export const SoundTool: React.FC<{
     setMsg(m);
     setTimeout(() => setMsg(null), 2500);
   };
+  // أي ملف صوت (مؤثر أو مزيكا أو تسجيل) كمقطع في مكان المؤشر
+  const addClip = (s: Sound) => {
+    const id = uid();
+    onAddFx({ id, src: s.path, atMs: Math.round(playheadMs), volume: kindOf(s) === "music" ? 60 : 80, label: nice(s), fileMs: s.duration ? Math.round(s.duration * 1000) : undefined });
+    onSelectClip(id);
+    flash(`اتحط "${nice(s)}" عند ${sec(playheadMs / 1000)} ✓ (عدّله من تحت)`);
+  };
   const useSound = (s: Sound) => {
     if (kindOf(s) === "music") {
       onUseMusic(s.path);
       flash(`"${nice(s)}" بقت مزيكا الفيديو ✓`);
-    } else {
-      onAddFx({ id: uid(), src: s.path, atMs: Math.round(playheadMs), volume: 80, label: nice(s) });
-      flash(`اتحط "${nice(s)}" عند ${sec(playheadMs / 1000)} ✓`);
-    }
+    } else addClip(s);
   };
 
   const tabs: [Tab, string][] = [
@@ -138,39 +148,22 @@ export const SoundTool: React.FC<{
       </div>
       {msg && <div className="flash">{msg}</div>}
 
-      {tab === "library" && <LibraryTab list={list} player={player} onUse={useSound} canSetMusic={canSetMusic} canAddFx={canAddFx} reload={load} />}
+      {tab === "library" && <LibraryTab list={list} player={player} onUse={useSound} onClip={addClip} canSetMusic={canSetMusic} canAddFx={canAddFx} reload={load} />}
       {tab === "import" && <ImportTab onDone={() => (load(), setTab("library"))} />}
       {tab === "freesound" && <FreesoundTab player={player} keys={keys} onImported={load} />}
       {tab === "generate" && <GenerateTab keys={keys} onMade={load} />}
 
-      {/* المؤثرات اللي في الفيديو ده */}
+      {/* المقاطع الصوتية اللي في الفيديو ده */}
       {canAddFx && fx.length > 0 && (
         <details className="fx-list" open>
-          <summary>🔊 المؤثرات في الفيديو ده ({fx.length})</summary>
-          {[...fx]
-            .sort((a, b) => a.atMs - b.atMs)
-            .map((f) => (
-              <div key={f.id} className="fx-row">
-                <button type="button" className="link-btn" onClick={() => onSeekMs(f.atMs)}>
-                  {sec(f.atMs / 1000)}
-                </button>
-                <span dir="auto">{f.label || f.src.split("/").pop()}</span>
-                <input
-                  type="range"
-                  dir="ltr"
-                  min={0}
-                  max={100}
-                  value={f.volume}
-                  aria-label="الصوت"
-                  onChange={(e) => onFxChange(fx.map((x) => (x.id === f.id ? { ...x, volume: Number(e.target.value) } : x)))}
-                />
-                <button type="button" className="btn-small btn-ghost" aria-label="امسح" onClick={() => onFxChange(fx.filter((x) => x.id !== f.id))}>
-                  ✕
-                </button>
-              </div>
-            ))}
+          <summary>🎧 المقاطع الصوتية في الفيديو ({fx.length})</summary>
+          <ClipList clips={fx} onChange={onFxChange} selected={selectedClip} onSelect={onSelectClip} playheadMs={playheadMs} onSeekMs={onSeekMs} />
         </details>
       )}
+      {canAddFx && !fx.length && <div className="hint">عايز تحط صوت في مكان معيّن؟ حرّك المؤشر للمكان، واختار أي صوت من المكتبة ودوس «＋ مقطع». تقدر ترفع ملفاتك من «⬆ استيراد».</div>}
+
+      {/* علّي ووطّي المزيكا أو صوت الفيديو في أماكن */}
+      <TrackRanges music={ranges.music} media={ranges.media} onChange={onRanges} playheadMs={playheadMs} totalMs={totalMs} onSeekMs={onSeekMs} />
     </div>
   );
 };
@@ -180,10 +173,11 @@ const LibraryTab: React.FC<{
   list: Sound[];
   player: ReturnType<typeof usePlayer>;
   onUse: (s: Sound) => void;
+  onClip: (s: Sound) => void;
   canSetMusic: boolean;
   canAddFx: boolean;
   reload: () => void;
-}> = ({ list, player, onUse, canSetMusic, canAddFx, reload }) => {
+}> = ({ list, player, onUse, onClip, canSetMusic, canAddFx, reload }) => {
   const [kind, setKind] = useState<"music" | "sfx">("music");
   const [tag, setTag] = useState("");
   const [q, setQ] = useState("");
@@ -267,8 +261,13 @@ const LibraryTab: React.FC<{
             </div>
             <div className="sound-actions">
               <button type="button" className="btn-small btn-ai" onClick={() => onUse(s)} disabled={!can}>
-                {kind === "music" ? "استخدمها" : "حطه هنا"}
+                {kind === "music" ? "استخدمها" : "＋ مقطع"}
               </button>
+              {kind === "music" && canAddFx && (
+                <button type="button" className="btn-small" onClick={() => onClip(s)} title="حطها كمقطع في مكان معيّن بدل ما تبقى مزيكا الفيديو كله">
+                  ＋ مقطع
+                </button>
+              )}
               {s.folder === "uploads" && (
                 <span>
                   <button type="button" className="link-btn" onClick={() => setEdit(edit === s.path ? null : s.path)}>
