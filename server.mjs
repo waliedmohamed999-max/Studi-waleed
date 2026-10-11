@@ -682,8 +682,9 @@ app.post("/api/film/plan", (req, res) => {
 });
 
 const needFal = (res) => {
-  if (!filmStatus().fal) {
-    res.status(400).json({ error: "حط مفتاح fal.ai من ⚙️ الإعدادات" });
+  const st = filmStatus();
+  if (!st.fal) {
+    res.status(400).json({ error: st.falEmpty ? "رصيد fal.ai خلص. اشحن من fal.ai/dashboard/billing وبعدين جرّب تاني" : "حط مفتاح fal.ai من ⚙️ الإعدادات" });
     return true;
   }
   return false;

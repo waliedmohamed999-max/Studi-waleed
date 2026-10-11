@@ -19,14 +19,21 @@ export class FilmError extends Error {}
 // فبنسيب حروف وأرقام بس (عشان محدش يبعت "../" ويكتب ملفات برا فولدر المشروع)
 export const safeId = (id) => String(id ?? "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "x";
 
+// لو fal.ai قال إن الرصيد خلص بنفتكر ده لحد ما المفتاح يتغير، والاستوديو بيشتغل بالطريق المجاني
+// (الصور من Pollinations، والفيديو حركة كاميرا على الصورة). أول ما تشحن وتعمل إعادة تشغيل أو تغيّر المفتاح يرجع لـ fal
+let falEmpty = null; // المفتاح اللي رصيده خلص
+const falUsable = () => !!process.env.FAL_KEY && falEmpty !== process.env.FAL_KEY;
+const markFalEmpty = () => (falEmpty = process.env.FAL_KEY);
+
 export const filmStatus = () => ({
-  fal: isMock() || !!process.env.FAL_KEY,
+  fal: isMock() || falUsable(),
+  falEmpty: !isMock() && !!process.env.FAL_KEY && !falUsable(),
   elevenlabs: !!process.env.ELEVENLABS_API_KEY,
   mock: isMock(),
   // من غير fal.ai: الصور بتتولد ببلاش (Pollinations)، والفيديو بيبقى حركة كاميرا على الصورة
   free: true,
 });
-const useFree = () => !isMock() && !process.env.FAL_KEY;
+const useFree = () => !isMock() && !falUsable();
 const freeImg = async (args) => {
   try {
     const [prompt] = await translateMany([args.prompt]);
@@ -110,8 +117,14 @@ export const createFilm = ({ publicDir }) => {
   const falError = (e) => {
     if (e instanceof ValidationError) return new FilmError(`fal.ai رفض المدخلات: ${JSON.stringify(e.body?.detail ?? e.message).slice(0, 300)}`);
     if (e instanceof ApiError) {
+      // "User is locked. Reason: Exhausted balance" بيرجع 403، فبنفرّقه عن المفتاح الغلط
+      if (e.status === 402 || /exhausted balance|top up your balance|insufficient/i.test(JSON.stringify(e.body ?? e.message))) {
+        markFalEmpty();
+        const err = new FilmError("رصيد fal.ai خلص. اشحن من fal.ai/dashboard/billing (لحد كده الاستوديو بيستخدم الصور المجانية)");
+        err.falEmpty = true;
+        return err;
+      }
       if (e.status === 401 || e.status === 403) return new FilmError("مفتاح fal.ai غلط أو مش مسموح له (راجع FAL_KEY)");
-      if (e.status === 402) return new FilmError("رصيد fal.ai خلص، اشحن من fal.ai/dashboard");
       return new FilmError(`fal.ai رجّع خطأ ${e.status}: ${String(e.message).slice(0, 200)}`);
     }
     return e;
@@ -171,7 +184,7 @@ export const createFilm = ({ publicDir }) => {
     const dir = dirFor(projectId);
     const dest = path.join(dir, `char-${safeId(character.id)}-${stamp()}.jpg`);
     if (isMock()) return { image: rel(mockPng(dest.replace(/\.jpg$/, ".png"), 540, 720, character.id.length + 3)) };
-    if (useFree()) {
+    const freeChar = async () => {
       await freeImg({
         prompt: `Photorealistic character reference portrait. ${character.description}. Waist-up, facing the camera, neutral expression, plain soft grey studio background, soft key light, 85mm lens, detailed natural skin. ${style}. No text, no watermark.`,
         size: "ref",
@@ -180,7 +193,8 @@ export const createFilm = ({ publicDir }) => {
         onProgress,
       });
       return { image: rel(dest) };
-    }
+    };
+    if (useFree()) return freeChar();
     const data = await callFal(
       MODELS.image.text,
       {
@@ -191,7 +205,11 @@ export const createFilm = ({ publicDir }) => {
         num_images: 1,
       },
       onProgress,
-    );
+    ).catch((e) => {
+      if (e.falEmpty) return null;
+      throw e;
+    });
+    if (!data) return freeChar();
     await download(data.images[0].url, dest);
     return { image: rel(dest) };
   };
@@ -208,7 +226,7 @@ export const createFilm = ({ publicDir }) => {
       return { keyframe: rel(mockPng(dest.replace(/\.jpg$/, ".png"), w, h, shot.id.charCodeAt(0) + shot.id.length)) };
     }
 
-    if (useFree()) {
+    const freeKey = async () => {
       // الموديل المجاني مبياخدش صور مرجعية، فبنثبّت الشخص بوصفه الكامل + نفس الـ seed بتاعه في كل لقطة
       const inShot = characters.filter((c) => shot.characters.includes(c.id));
       const who = inShot.map((c) => `${c.name === "الشخص" ? "The person" : c.name}: ${c.description}`).join(" ");
@@ -220,7 +238,8 @@ export const createFilm = ({ publicDir }) => {
         onProgress,
       });
       return { keyframe: rel(dest) };
-    }
+    };
+    if (useFree()) return freeKey();
 
     const refChars = characters.filter((c) => shot.characters.includes(c.id) && c.image);
     const refUps = shot.refUploads.map((i) => uploads[i]).filter((u) => u && !/\.svg$/i.test(u.path));
@@ -231,9 +250,15 @@ export const createFilm = ({ publicDir }) => {
     ].join(" ");
     const prompt = `Photorealistic cinematic film still, first frame of a shot. ${shot.imagePrompt}. ${who} ${style} No text, no captions, no watermarks.`;
     const input = { prompt, aspect_ratio: aspectOf(format), resolution: MODELS.image.resolution, output_format: "jpeg", num_images: 1 };
-    const data = refs.length
-      ? await callFal(MODELS.image.edit, { ...input, image_urls: await Promise.all(refs.map(toFalUrl)) }, onProgress)
-      : await callFal(MODELS.image.text, input, onProgress);
+    let data;
+    try {
+      data = refs.length
+        ? await callFal(MODELS.image.edit, { ...input, image_urls: await Promise.all(refs.map(toFalUrl)) }, onProgress)
+        : await callFal(MODELS.image.text, input, onProgress);
+    } catch (e) {
+      if (e.falEmpty) return freeKey();
+      throw e;
+    }
     await download(data.images[0].url, dest);
     return { keyframe: rel(dest) };
   };
