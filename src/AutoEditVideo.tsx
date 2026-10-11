@@ -25,7 +25,11 @@ export type Broll = TimeRange & {
   credit: string;
   enabled: boolean;
   skip: number; // رقم النتيجة في البحث (عشان "لقطة تانية")
+  srcFromMs?: number; // اللقطة بتبدأ منين جوه ملفها (لقطات من فيديوهاتك انت)
 };
+
+// تصليح صوت: الكلام الأصلي في الفترة دي بيتكتم، وبيتسمع مكانه صوت متولد بنفس الطول (بتوقيت الفيديو الأصلي)
+export type VoiceFix = TimeRange & { id: string; fromWord: number; toWord: number; text: string; audio: string; enabled: boolean };
 
 export type AutoEditProps = {
   media: string;
@@ -84,6 +88,22 @@ export type AutoEditProps = {
   // مؤثرات صوتية في لحظات معينة، وخفض المزيكا وقت الكلام
   soundFx: SoundFxItem[];
   duckMusic: string; // on | off
+  // كلام غلط اتقال تاني بصوتك
+  voiceFixes: VoiceFix[];
+  // فيديوهات اللقطات للمونتاج الاحترافي بضغطة
+  footage: string[];
+};
+
+// التصليحات اللي شغالة (الدبلجة بتلغيها لأنها صوت تاني خالص)
+const activeFixes = (p: AutoEditProps) => (dubOn(p) ? [] : (p.voiceFixes ?? []).filter((x) => x.enabled && x.audio));
+// كام في المية من الصوت الأصلي بيتسمع عند لحظة معينة (بيوطى بسرعة جوه التصليح عشان ميبقاش فيه "تِك")
+export const originalGain = (ms: number, fixes: TimeRange[]) => {
+  let g = 1;
+  for (const x of fixes) {
+    const edge = Math.min(ms - x.fromMs, x.toMs - ms);
+    if (edge > -30) g = Math.min(g, Math.max(0, Math.min(1, -edge / 30)));
+  }
+  return g;
 };
 
 // الكلام بتوقيت الفيديو الأصلي ← بتوقيت المونتاج (للكابشن المدبلج): الكلمة بتفضل لو نصها جوه جزء متساب
@@ -142,7 +162,9 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
 
   // fade سريع (3 فريم ≈ 0.1 ثانية) في أول وآخر كل مقطع، عشان القطع ميعملش "تِك"
   const base = Math.max(0, Math.min(100, p.mediaVolume ?? 100)) / 100;
-  const vol = (f: number) => base * Math.max(0, Math.min(1, f / 3, (frames - f) / 3));
+  const edge = (f: number) => Math.max(0, Math.min(1, f / 3, (frames - f) / 3));
+  const fixes = activeFixes(p).filter((x) => x.fromMs < seg.toMs && x.toMs > seg.fromMs);
+  const vol = (f: number) => base * edge(f) * (fixes.length ? originalGain(seg.fromMs + (f / fps) * 1000, fixes) : 1);
   const trimBefore = Math.round((seg.fromMs / 1000) * fps);
 
   // الصورة: الفيديو المدبلج (لو الشفايف اتحركت)، أو الشخص من غير خلفية، أو الأصل
@@ -167,6 +189,17 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
         <OffthreadVideo src={assetSrc(visual)} trimBefore={trimBefore} transparent={!!cut} muted={!!audio} volume={audio ? 0 : vol} style={fit} />
       </AbsoluteFill>
       {audio && <Html5Audio src={assetSrc(audio)} trimBefore={trimBefore} volume={vol} />}
+      {/* الكلام المصلَّح في مكان الأصلي */}
+      {fixes.map((x) => {
+        const start = Math.max(x.fromMs, seg.fromMs);
+        const from = Math.round(((start - seg.fromMs) / 1000) * fps);
+        const len = Math.max(1, Math.round(((Math.min(x.toMs, seg.toMs) - seg.fromMs) / 1000) * fps) - from);
+        return (
+          <Sequence key={x.id} from={from} durationInFrames={len}>
+            <Html5Audio src={assetSrc(x.audio)} trimBefore={Math.round(((start - x.fromMs) / 1000) * fps)} volume={(f) => base * edge(from + f)} />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };
@@ -174,13 +207,14 @@ const SegmentView: React.FC<{ p: AutoEditProps; seg: Segment; index: number; fra
 // ===== لقطة B-roll فوق الكلام: بتدخل بزووم خفيف وتطلع بـ fade =====
 const BrollView: React.FC<{ b: Broll; frames: number; index: number }> = ({ b, frames, index }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const fade = Math.min(1, frame / 5, (frames - frame) / 5);
   const scale = interpolate(frame, [0, frames], [1.06, 1]);
   return (
     <AbsoluteFill style={{ opacity: Math.max(0, fade), background: "#000" }}>
       {b.kind === "video" ? (
         <AbsoluteFill style={{ transform: `scale(${scale})` }}>
-          <OffthreadVideo src={assetSrc(b.src)} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <OffthreadVideo src={assetSrc(b.src)} trimBefore={Math.round(((b.srcFromMs ?? 0) / 1000) * fps)} muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         </AbsoluteFill>
       ) : (
         <KenBurnsImage src={b.src} duration={frames} index={index} />
@@ -206,7 +240,7 @@ export const AutoEditVideo: React.FC<AutoEditProps> = (p) => {
   const input = edlInput(p);
   const segments = useMemo(() => buildSegments(input), [p]);
   const captions = useMemo(
-    () => (p.captions !== "on" ? [] : dubOn(p) && (p.dubWords ?? []).length ? remapPlainWords(p.dubWords, segments) : remapWords(input, segments)),
+    () => (p.captions !== "on" ? [] : dubOn(p) && (p.dubWords ?? []).length ? remapPlainWords(p.dubWords, segments) : remapWords(input, segments).filter((w) => w.text.trim())),
     [p, segments],
   );
   // فترات الكلام بعد المونتاج (عشان المزيكا توطى تحتها)

@@ -257,6 +257,8 @@ const autoEditDefaults: AutoEditProps = {
   useDub: "off",
   soundFx: [],
   duckMusic: "on",
+  voiceFixes: [],
+  footage: [],
 };
 
 const podcastDefaults: PodcastProps = {

@@ -4,12 +4,13 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { createQueue, formats } from "./scripts/render-queue.mjs";
 import { detectSpeech, setupWhisper, transcribeFile, whisperStatus, ffmpegPath } from "./scripts/whisper.mjs";
 import { AiError, aiStatus, analyzeTalk, contentPlan, generateVideo, improveScene, pickEmojis, planFilm, reviewVideo, suggestBrand, writePost, writeScript } from "./scripts/ai.mjs";
-import { dubLanguages, dubMedia, joinClips, MediaError } from "./scripts/media.mjs";
+import { dubLanguages, dubMedia, joinClips, MediaError, placeTake, probe, revoiceMedia } from "./scripts/media.mjs";
 import { analyzePodcast, PodcastError } from "./scripts/podcast.mjs";
 import { analyzeAudio, importFreesound, searchFreesound, SoundLibError } from "./scripts/soundlib.mjs";
 import { renderStill, selectComposition } from "@remotion/renderer";
@@ -21,6 +22,8 @@ import { generateSound, SoundError } from "./scripts/sound.mjs";
 import { createKeyStore } from "./scripts/keys.mjs";
 import { createBroll, BrollError } from "./scripts/broll.mjs";
 import { tryRemove } from "./scripts/fsutil.mjs";
+import { exploreVideos, ShotsError } from "./scripts/shots.mjs";
+import { freePlan, FreeError } from "./scripts/free.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -120,10 +123,38 @@ app.post("/api/upload", async (req, res) => {
   res.json({ path: `uploads/${name}`, kind, duration });
 });
 
+// بصمة الملف: الحجم + أول وآخر ميجا (سريعة حتى للفيديو الكبير)
+const fingerprint = (file) => {
+  const size = fs.statSync(file).size;
+  const fd = fs.openSync(file, "r");
+  try {
+    const n = Math.min(size, 1024 * 1024);
+    const head = Buffer.alloc(n);
+    const tail = Buffer.alloc(n);
+    fs.readSync(fd, head, 0, n, 0);
+    fs.readSync(fd, tail, 0, n, Math.max(0, size - n));
+    return crypto.createHash("md5").update(String(size)).update(head).update(tail).digest("hex");
+  } finally {
+    fs.closeSync(fd);
+  }
+};
+app.get("/api/media/fingerprints", (req, res) => {
+  const paths = String(req.query.paths ?? "").split("|").filter(Boolean).slice(0, 50);
+  const out = {};
+  for (const p of paths) {
+    const file = publicPath(p);
+    out[p] = file ? fingerprint(file) : null;
+  }
+  res.json(out);
+});
+
 app.get("/api/media-info", async (req, res) => {
   const file = publicPath(req.query.path);
   if (!file) return res.status(404).json({ error: "الملف مش موجود" });
-  res.json({ duration: await mediaDuration(file), kind: kindOf(file) });
+  const kind = kindOf(file);
+  // الفيديو: المقاس كمان (بعد لفة الموبايل) عشان الاستوديو يعرف هو طولي ولا عرضي
+  const size = kind === "video" ? await probe(file).catch(() => null) : null;
+  res.json({ duration: await mediaDuration(file), kind, width: size?.width ?? 0, height: size?.height ?? 0 });
 });
 
 // ===== مكتبة الملفات =====
@@ -656,14 +687,21 @@ const needFal = (res) => {
   return false;
 };
 
+// سيناريو مجاني (من غير Claude): من وصف الشخص والمكان وكلامك
+app.post("/api/film/free-plan", async (req, res) => {
+  try {
+    res.json(await freePlan({ person: clip(req.body?.person, 600), place: clip(req.body?.place, 400), script: clip(req.body?.script, 4000), title: clip(req.body?.title, 80) }));
+  } catch (e) {
+    res.status(e instanceof FreeError ? 400 : 500).json({ error: e instanceof FreeError ? e.message : "حصلت مشكلة في كتابة السيناريو" });
+  }
+});
+// صور الشخصيات واللقطات: بـ fal.ai لو فيه مفتاح، وإلا ببلاش (Pollinations)
 app.post("/api/film/character", (req, res) => {
-  if (needFal(res)) return;
   const b = req.body ?? {};
   startFilmJob(res, (step) => film.character({ projectId: String(b.projectId), character: b.character, style: clip(b.style, 1500), onProgress: step }));
 });
 
 app.post("/api/film/keyframe", (req, res) => {
-  if (needFal(res)) return;
   const b = req.body ?? {};
   startFilmJob(res, (step) =>
     film.keyframe({ projectId: String(b.projectId), shot: b.shot, characters: b.characters ?? [], uploads: b.uploads ?? [], style: clip(b.style, 1500), format: String(b.format), onProgress: step }),
@@ -786,6 +824,57 @@ app.post("/api/autoedit/dub", (req, res) => {
       return await dubMedia({ file, sourceLang: source, targetLang: target, uploadsDir, onProgress: step });
     } catch (e) {
       throw e instanceof MediaError ? new FilmError(e.message) : e;
+    }
+  });
+});
+// تصليح كلمة أو جملة غلط في الصوت: بتتقال تاني بصوتك في نفس مكانها
+app.post("/api/autoedit/revoice", (req, res) => {
+  const file = publicPath(req.body?.path);
+  if (!file) return res.status(404).json({ error: "الفيديو مش موجود" });
+  const text = clip(req.body?.text, 500).trim();
+  const fromMs = Number(req.body?.fromMs);
+  const toMs = Number(req.body?.toMs);
+  if (!text) return res.status(400).json({ error: "اكتب الكلام الصح الأول" });
+  if (!(fromMs >= 0 && toMs > fromMs)) return res.status(400).json({ error: "مكان الكلام مش مظبوط" });
+  if (!process.env.ELEVENLABS_API_KEY && process.env.AI_MOCK !== "1") return res.status(400).json({ error: "حط مفتاح ElevenLabs من ⚙️ الإعدادات عشان تصليح الصوت" });
+  startFilmJob(res, async (step) => {
+    try {
+      return await revoiceMedia({ file, text, fromMs, toMs, before: clip(req.body?.before, 300), after: clip(req.body?.after, 300), uploadsDir, onProgress: step });
+    } catch (e) {
+      throw e instanceof MediaError ? new FilmError(e.message) : e;
+    }
+  });
+});
+// المونتاج الاحترافي بضغطة: بيتفرج على كل الفيديوهات ويقيّم لقطاتها (من غير مفاتيح)
+app.post("/api/autoedit/explore", (req, res) => {
+  const paths = Array.isArray(req.body?.paths) ? req.body.paths.slice(0, 8) : [];
+  const files = paths.map((rel) => ({ rel: String(rel), file: publicPath(rel) }));
+  if (!files.length || files.some((x) => !x.file)) return res.status(404).json({ error: "فيه فيديو مش موجود" });
+  startFilmJob(res, async (step) => {
+    try {
+      return { videos: await exploreVideos({ files, onProgress: step }) };
+    } catch (e) {
+      throw e instanceof ShotsError || e instanceof MediaError ? new FilmError(e.message) : e;
+    }
+  });
+});
+// تسجيلة من المايك مكان الكلام الغلط (ببلاش، من غير أي مفتاح)
+app.post("/api/autoedit/take", (req, res) => {
+  const file = publicPath(req.body?.path);
+  // التسجيلة بتتمسح بعد ما تتحط، فلازم تكون تسجيلة مايك مرفوعة (uploads/xxx-take.webm) مش أي ملف تاني
+  const takeRel = String(req.body?.take ?? "");
+  const take = /^uploads\/[a-z0-9]+-take\.(webm|ogg|wav|m4a|mp4)$/.test(takeRel) ? publicPath(takeRel) : null;
+  if (!file || !take) return res.status(404).json({ error: "الملف مش موجود" });
+  const fromMs = Number(req.body?.fromMs);
+  const toMs = Number(req.body?.toMs);
+  if (!(fromMs >= 0 && toMs > fromMs && toMs - fromMs <= 30000)) return res.status(400).json({ error: "مكان الكلام مش مظبوط" });
+  startFilmJob(res, async (step) => {
+    try {
+      return await placeTake({ take, file, fromMs, toMs, uploadsDir, onProgress: step });
+    } catch (e) {
+      throw e instanceof MediaError ? new FilmError(e.message) : e;
+    } finally {
+      tryRemove(take);
     }
   });
 });

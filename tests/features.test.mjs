@@ -125,6 +125,35 @@ describe("دمج الكليبات", () => {
 });
 
 describe("الدبلجة وشيل الخلفية (وضع التجربة)", () => {
+  it("تصليح كلمة بالصوت بيرجع صوت بنفس طول الكلمة", async () => {
+    const j = await job("/api/autoedit/revoice", { path: "uploads/zz-test-a.mp4", text: "المدرسة", fromMs: 500, toMs: 1300 });
+    expect(j.status).toBe("done");
+    expect(fs.existsSync(path.resolve("public", j.result.path))).toBe(true);
+  });
+  it("تسجيلة المايك بتتحط مكان الكلمة بنفس طولها بالظبط", async () => {
+    fs.copyFileSync(path.resolve("public/uploads/zz-test-a.mp4"), path.resolve("public/uploads/zztest01-take.mp4"));
+    const j = await job("/api/autoedit/take", { path: "uploads/zz-test-a.mp4", take: "uploads/zztest01-take.mp4", fromMs: 400, toMs: 1100 });
+    expect(j.status).toBe("done");
+    const { data } = await api(`/api/media-info?path=${j.result.path}`);
+    expect(data.duration).toBeCloseTo(0.7, 1);
+    expect(fs.existsSync(path.resolve("public/uploads/zztest01-take.mp4"))).toBe(false);
+  });
+  it("التسجيلة لازم تكون ملف تسجيلة: أي ملف تاني مرفوض ومبيتمسحش", async () => {
+    const { status } = await api("/api/autoedit/take", { method: "POST", body: { path: "uploads/zz-test-a.mp4", take: "uploads/zz-test-b.mp4", fromMs: 0, toMs: 500 } });
+    expect(status).toBe(404);
+    expect(fs.existsSync(path.resolve("public/uploads/zz-test-b.mp4"))).toBe(true);
+  });
+  it("بصمة الملف: النسخة المرفوعة مرتين ليها نفس البصمة، والفيديو التاني مختلف", async () => {
+    fs.copyFileSync(path.resolve("public/uploads/zz-test-a.mp4"), path.resolve("public/uploads/zz-copy.mp4"));
+    made.push("uploads/zz-copy.mp4");
+    const { data } = await api(`/api/media/fingerprints?paths=${encodeURIComponent("uploads/zz-test-a.mp4|uploads/zz-copy.mp4|uploads/zz-test-b.mp4")}`);
+    expect(data["uploads/zz-test-a.mp4"]).toBe(data["uploads/zz-copy.mp4"]);
+    expect(data["uploads/zz-test-a.mp4"]).not.toBe(data["uploads/zz-test-b.mp4"]);
+  });
+  it("تصليح الصوت من غير كلام مرفوض", async () => {
+    const { status } = await api("/api/autoedit/revoice", { method: "POST", body: { path: "uploads/zz-test-a.mp4", text: " ", fromMs: 0, toMs: 500 } });
+    expect(status).toBe(400);
+  });
   it("الدبلجة بترجع صوت وكلام بتوقيت", async () => {
     const j = await job("/api/autoedit/dub", { path: "uploads/zz-test-a.mp4", targetLang: "en" });
     expect(j.status).toBe("done");

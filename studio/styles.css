@@ -133,6 +133,15 @@ button:disabled {
   gap: 1px;
   background: var(--line);
   overflow: hidden;
+  /* clip مش hidden بس: hidden بيسمح للمتصفح يزحلق الشاشة كلها لفوق لما عنصر جواها ياخد focus (الشاشة كانت بتتكسر) */
+  overflow: clip;
+}
+/* على الكمبيوتر الصفحة نفسها مبتتزحلقش أبدًا، كل جزء بيتزحلق جواه */
+@media (min-width: 901px) {
+  html,
+  body {
+    overflow: hidden;
+  }
 }
 .studio.no-tool {
   --tool-w: 0px;
@@ -2022,8 +2031,16 @@ details.ae-step > summary {
   line-height: 2;
   font-size: var(--fs);
 }
-.ae-word.keep {
+.ae-word {
   cursor: pointer;
+  border-radius: 4px;
+}
+.ae-word.selected {
+  background: var(--warn);
+  color: #000;
+}
+.ae-word.fixed {
+  text-decoration: underline wavy var(--accent-text);
 }
 .ae-word.keep:hover {
   color: var(--accent-text);
@@ -3196,4 +3213,58 @@ button.chip {
   padding: 10px;
   border-radius: var(--r);
   background: var(--surface-2);
+}
+
+.btn-rec {
+  background: var(--err);
+  color: #fff;
+  animation: rec-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes rec-pulse {
+  to {
+    opacity: 0.65;
+  }
+}
+
+.autopro-report {
+  white-space: pre-wrap;
+  font-family: inherit;
+  margin: 0;
+}
+
+.format-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.format-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-s);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--fs-s);
+}
+.format-option small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.format-option.active {
+  border-color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-text);
+}
+.format-shape {
+  display: block;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  margin-block: auto;
+}
+.format-option.active .format-shape {
+  background: var(--accent-text);
+  border-color: var(--accent-text);
 }

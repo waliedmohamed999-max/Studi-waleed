@@ -96,8 +96,18 @@ export const refineWords = (words: Caption[], speech: TimeRange[]): Caption[] =>
     if (!idx.length) continue;
     const weights = idx.map((i) => Math.max(1, words[i].text.trim().length));
     const sum = weights.reduce((a, b) => a + b, 0);
-    let t = speech[k].fromMs;
-    const span = speech[k].toMs - speech[k].fromMs;
+    // لو "الكلام" المكتشف أطول بكتير من الكلمات اللي فيه (مزيكا قبل الكلام مثلًا)، بنوزع على وقت Whisper جوه الجزء بس
+    // عشان الكابشن ميظهرش قبل الكلام بثواني
+    let from = speech[k].fromMs;
+    let to = speech[k].toMs;
+    const wFrom = Math.max(from, words[idx[0]].startMs);
+    const wTo = Math.min(to, Math.max(...idx.map((i) => words[i].endMs)));
+    if (wTo - wFrom > 200 && wTo - wFrom < (to - from) * 0.6) {
+      from = wFrom;
+      to = wTo;
+    }
+    let t = from;
+    const span = to - from;
     idx.forEach((i, j) => {
       const d = (weights[j] / sum) * span;
       result[i].startMs = Math.round(t);
@@ -212,3 +222,104 @@ export const rangeToOut = (r: TimeRange, segments: Segment[]): TimeRange | null 
   }
   return to > from ? { fromMs: from, toMs: to } : null;
 };
+
+// ===== تنضيف التفريغ (من غير أي مفاتيح) =====
+// مفتاح المقارنة: من غير "ال" والتاء المربوطة والألف المقصورة (عشان "شاشة" = "الشاشة")
+const wordKey = (t: string) =>
+  normalizeWord(t)
+    .replace(/^(و|ف|ب)?ال(?=..)/, "")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي");
+const conf = (w: Caption) => w.confidence ?? 1;
+const sameRun = (words: Caption[], a: number, b: number, n: number) => {
+  for (let k = 0; k < n; k++) if (!words[b + k] || wordKey(words[a + k].text) !== wordKey(words[b + k].text) || !wordKey(words[a + k].text)) return false;
+  return true;
+};
+// كلمات بنكررها للتأكيد، مش غلط ("جدا جدا"، "شوية شوية")
+const EMPHASIS = new Set(["جدا", "اوي", "خالص", "شويه", "بالراحه", "كتير", "واحده", "حبه", "لا", "اه", "ايوه"]);
+
+// Whisper ساعات "بيألّف" كلام على المزيكا أو السكوت (غالبًا نسخة من الجملة اللي بعدها، بثقة ضعيفة وتوقيت مش منطقي)
+// الكلمات دي بتتشال خالص (مش بتتقص من الفيديو، لأن مفيش كلام حقيقي مكانها)
+// جمل Whisper معروف إنه بيألّفها على المزيكا والسكوت (من فيديوهات يوتيوب اللي اتدرب عليها)
+const HALLUCINATIONS = [["موسيقى"], ["موسيقي"], ["اشتركوا", "في", "القناه"], ["اشترك", "في", "القناه"], ["شكرا", "للمشاهده"], ["ترجمه", "نانسي", "قنقر"], ["تصفيق"], ["ضحك"]];
+
+export const cleanTranscript = (words: Caption[]): Caption[] => {
+  const drop = new Set<number>();
+  const plain = (t: string) => normalizeWord(t).replace(/ة/g, "ه").replace(/ى/g, "ي");
+  for (let i = 0; i < words.length; i++)
+    for (const h of HALLUCINATIONS)
+      if (h.every((x, k) => words[i + k] && plain(words[i + k].text) === x)) h.forEach((_, k) => drop.add(i + k));
+  words.forEach((w, i) => {
+    const dur = w.endMs - w.startMs;
+    if (conf(w) < 0.15 || (dur > 2500 && conf(w) < 0.7) || (dur <= 0 && conf(w) < 0.7) || !w.text.trim()) drop.add(i);
+  });
+  for (let i = 0; i < words.length; i++) {
+    for (let n = 5; n >= 2; n--) {
+      for (let gap = 0; gap <= 3; gap++) {
+        const j = i + n + gap;
+        if (!sameRun(words, i, j, n)) continue;
+        const run = words.slice(i, i + n);
+        const weak = run.reduce((s, w) => s + conf(w), 0) / n < 0.7 || run.some((_, k) => drop.has(i + k)) || run.some((w) => w.endMs - w.startMs > 2500 || w.endMs <= w.startMs);
+        if (weak) for (let k = 0; k < n; k++) drop.add(i + k);
+      }
+    }
+  }
+  return words.filter((_, i) => !drop.has(i));
+};
+
+// الإعادات: لما تقول جملة وتبتدي تاني ("روحت الشغل... روحت الشغل امبارح") النسخة الأولى بتتقص
+// (بديل مجاني لتحليل Claude، بيلقط الإعادة الواضحة بس)
+export const findRestarts = (words: Caption[]): CutRange[] => {
+  const cuts: CutRange[] = [];
+  let i = 0;
+  while (i < words.length) {
+    let found: CutRange | null = null;
+    for (let n = 5; n >= 1 && !found; n--) {
+      for (let gap = 0; gap <= (n === 1 ? 0 : 3) && !found; gap++) {
+        const j = i + n + gap;
+        if (!sameRun(words, i, j, n)) continue;
+        if (n === 1 && (EMPHASIS.has(wordKey(words[i].text)) || wordKey(words[i].text).length < 2)) continue;
+        // الإعادة بتبقى قريبة (أقل من 4 ثواني بين النسختين)
+        if (words[j].startMs - words[i].startMs > 4000) continue;
+        found = { fromWord: i, toWord: j - 1, fromMs: words[i].startMs, toMs: words[j - 1].endMs, reason: "إعادة", enabled: true };
+      }
+    }
+    if (found) {
+      cuts.push(found);
+      i = found.toWord! + 1;
+    } else i++;
+  }
+  return cuts;
+};
+
+// ===== بعد ما الكلمات تتغير (تفريغ تاني أو تنضيف) =====
+// الحاجات المربوطة بأرقام الكلمات (إيموجي، قص، جمل مهمة، لقطات) لازم تتنقل مع كلمتها، وإلا هتقع على كلمة تانية
+// الكلمة القديمة ← نفس الكلمة في القايمة الجديدة (نفس الكلام وقريبة في الوقت)، أو undefined لو اتشالت
+export const wordIndexMap = (oldWords: Caption[], newWords: Caption[]) => {
+  const map: (number | undefined)[] = [];
+  let from = 0;
+  oldWords.forEach((w, i) => {
+    const key = normalizeWord(w.text);
+    for (let j = from; j < newWords.length; j++) {
+      if (newWords[j].startMs - w.startMs > 1500) break;
+      if (normalizeWord(newWords[j].text) === key && Math.abs(newWords[j].startMs - w.startMs) <= 1500) {
+        map[i] = j;
+        from = j + 1;
+        return;
+      }
+    }
+  });
+  return map;
+};
+
+// بيحدّث أرقام الكلمات في أي قايمة. اللي كلمته اتشالت: لو required بيتمسح، وإلا بيفضل بالوقت بس
+export const relinkWords = <T extends { fromWord?: number; toWord?: number }>(items: T[], map: (number | undefined)[], required = false): T[] =>
+  items.flatMap((it) => {
+    if (it.fromWord === undefined) return [it];
+    const a = map[it.fromWord];
+    const b = map[it.toWord ?? it.fromWord];
+    if (a !== undefined && b !== undefined) return [{ ...it, fromWord: a, ...(it.toWord !== undefined ? { toWord: b } : {}) }];
+    if (required) return [];
+    const { fromWord: _f, toWord: _t, ...rest } = it;
+    return [rest as T];
+  });

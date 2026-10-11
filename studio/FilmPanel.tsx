@@ -15,6 +15,7 @@ type Status = {
   elevenlabs: boolean;
   claude: boolean;
   mock: boolean;
+  free?: boolean; // الصور ببلاش من غير fal.ai
   tiers: Record<string, { label: string; pricePerSecond: number }>;
   imagePrice: number;
   lipsyncPricePerSecond: number;
@@ -163,6 +164,36 @@ export const FilmPanel: React.FC<{
     return j ? jobSteps[j.jobId] || "بيبدأ…" : null;
   };
 
+  // الصور: بـ fal.ai أو ببلاش. الفيديو المتولد وحركة الشفايف: fal.ai بس (من غيره الصورة بتتحرك بحركة كاميرا)
+  const imagesOk = !!(status?.fal || status?.free || status?.mock);
+  const videoGen = !!(status?.fal || status?.mock);
+  const imagesFree = !!status && !status.fal && !status.mock;
+
+  // ===== السيناريو المجاني (من غير Claude) =====
+  const [freeBusy, setFreeBusy] = useState(false);
+  const writeFreePlan = async (ask = true) => {
+    if (ask && p.shots.length && !confirm("ده هيستبدل السيناريو واللقطات الحالية. تكمل؟")) return false;
+    setFreeBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/film/free-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ person: p.freePerson ?? "", place: p.freePlace ?? "", script: p.freeScript ?? "" }),
+      });
+      const plan = await r.json();
+      if (!r.ok) throw new Error(plan.error);
+      // من غير مفتاح ElevenLabs: صوت الويندوز المجاني
+      patchFilm((f) => ({ ...planToFilm(plan as Plan, f), voiceProvider: f.voiceProvider === "elevenlabs" && !status?.elevenlabs ? "windows" : f.voiceProvider }));
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setFreeBusy(false);
+    }
+  };
+
   // ===== الأوامر =====
   const writePlan = () => {
     if (p.shots.length && !confirm("ده هيستبدل السيناريو واللقطات الحالية. تكمل؟")) return;
@@ -193,10 +224,10 @@ export const FilmPanel: React.FC<{
   const needChar = p.characters.filter((c) => !c.image);
   const needKey = p.shots.filter((s) => !s.keyframe);
   const needVoice = p.shots.filter((s) => s.voiceLine.trim() && !s.voice);
-  const needClip = p.shots.filter((s) => s.keyframe && (!s.clip || clipOutdated(s)));
+  const needClip = videoGen ? p.shots.filter((s) => s.keyframe && (!s.clip || clipOutdated(s))) : [];
   const needLip = p.shots.filter(needsLipsync);
   const lipCost = (shots: FilmShot[]) => shots.reduce((sum, s) => sum + clampDur(s.duration) * (status?.lipsyncPricePerSecond ?? 0.05), 0);
-  const imgCost = (n: number) => n * (status?.imagePrice ?? 0.15);
+  const imgCost = (n: number) => (imagesFree ? 0 : n * (status?.imagePrice ?? 0.15));
   const clipCost = (shots: FilmShot[]) => shots.reduce((sum, s) => sum + clampDur(s.duration) * (tier?.pricePerSecond ?? 0.22), 0);
   const voiceCost = (shots: FilmShot[]) =>
     p.voiceProvider === "elevenlabs" ? (shots.reduce((n, s) => n + s.voiceLine.length, 0) / 1000) * (status?.voicePricePer1kChars ?? 0.2) : 0;
@@ -215,6 +246,7 @@ export const FilmPanel: React.FC<{
   // التكلفة الكاملة: لو لسه مفيش سيناريو بنقدّر من الطول المطلوب
   const autoEstimate = () => {
     const price = tier?.pricePerSecond ?? 0.112;
+    if (!p.shots.length && !videoGen) return 0;
     if (!p.shots.length) {
       const shots = Math.ceil(p.targetSeconds / 5);
       const chars = 2;
@@ -223,18 +255,22 @@ export const FilmPanel: React.FC<{
     }
     // حركة الشفايف: كل لقطة فيها شخصية بتتكلم في الكادر ومش معمولة لسه
     const lips = lipCost(p.shots.filter((s) => s.speaker && s.voiceLine.trim() && !lipsyncReady(s)));
-    return imgCost(needChar.length + needKey.length) + p.shots.filter((s) => !s.clip || clipOutdated(s)).reduce((sum, s) => sum + clampDur(s.duration) * price, 0) + voiceCost(needVoice) + lips;
+    const clips = videoGen ? p.shots.filter((s) => !s.clip || clipOutdated(s)).reduce((sum, s) => sum + clampDur(s.duration) * price, 0) : 0;
+    return imgCost(needChar.length + needKey.length) + clips + voiceCost(needVoice) + (videoGen ? lips : 0);
   };
 
+  const freePlanReady = !!(p.freeScript ?? "").trim();
   const startAuto = () => {
-    if (!p.shots.length && !p.brief.trim()) return setError("اكتب الفكرة الأول");
+    if (!p.shots.length && !(status?.claude || status?.mock) && !freePlanReady) return setError("اكتب الكلام اللي هيتقال الأول (كل سطر لقطة)");
+    if (!p.shots.length && (status?.claude || status?.mock) && !p.brief.trim()) return setError("اكتب الفكرة الأول");
     if (p.voiceProvider === "elevenlabs" && !p.voiceId) return setError("اختار صوت ElevenLabs الأول (في التعليق الصوتي)");
     const cost = autoEstimate();
-    const free = status?.mock;
+    const free = status?.mock || cost === 0;
     if (
       !confirm(
-        `هيتعمل كل حاجة لوحدها: ${p.shots.length ? "" : "السيناريو، "}صور الشخصيات واللقطات، التعليق الصوتي، الفيديوهات، والتصدير.\n` +
-          `التكلفة التقريبية الكاملة: ${free ? "مجاني (وضع تجربة)" : `~${money(cost)}`}\n` +
+        `هيتعمل كل حاجة لوحدها: ${p.shots.length ? "" : "السيناريو، "}صور الشخصيات واللقطات، التعليق الصوتي، ${videoGen ? "الفيديوهات" : "حركة الكاميرا على الصور"}، والتصدير.\n` +
+          `التكلفة التقريبية الكاملة: ${free ? (status?.mock ? "مجاني (وضع تجربة)" : "مجاني") : `~${money(cost)}`}\n` +
+          (imagesFree ? "الصور المجانية من غير مفتاح بتاخد حوالي دقيقة للصورة.\n" : "") +
           `ممكن ياخد من 5 لـ 20 دقيقة، وتقدر توقفه في أي وقت. تكمل؟`,
       )
     )
@@ -255,7 +291,9 @@ export const FilmPanel: React.FC<{
 
     // 1) السيناريو
     if (!p.shots.length) {
-      if (!busy("plan", "plan")) kick("plan", () => start("plan", "plan", { brief: p.brief, videoType: p.videoType, dialect: p.dialect, targetSeconds: p.targetSeconds, format: p.format, uploads: p.uploads }));
+      if (status.claude || status.mock) {
+        if (!busy("plan", "plan")) kick("plan", () => start("plan", "plan", { brief: p.brief, videoType: p.videoType, dialect: p.dialect, targetSeconds: p.targetSeconds, format: p.format, uploads: p.uploads }));
+      } else kick("freeplan", () => void writeFreePlan(false).then((ok) => !ok && patchFilm(() => ({ auto: false }))));
       return;
     }
     // 2) صور الشخصيات + 3) التعليق الصوتي (مع بعض)
@@ -266,13 +304,14 @@ export const FilmPanel: React.FC<{
       .filter((s) => !s.keyframe && !busy("keyframe", s.id) && s.characters.every((id) => p.characters.find((c) => c.id === id)?.image))
       .forEach((s) => kick(`key:${s.id}`, () => genKeyframe(s)));
     // 5) الفيديو: بعد الصورة والصوت (عشان المدة تتظبط على الكلام الأول)
-    p.shots
+    if (videoGen)
+      p.shots
       .filter((s) => s.keyframe && (!s.clip || clipOutdated(s)) && !voicePending(s) && !busy("clip", s.id))
       .forEach((s) => kick(`clip:${s.id}:${s.keyframe}:${clampDur(s.duration)}`, () => genClip(s)));
 
     // 6) حركة الشفايف: بعد الفيديو والصوت، للقطات اللي فيها حد بيتكلم في الكادر
-    const clipsReady = p.shots.every((s) => s.keyframe && s.clip && !clipOutdated(s) && !voicePending(s));
-    if (clipsReady) needLip.filter((s) => !busy("lipsync", s.id)).forEach((s) => kick(`lip:${s.id}:${s.clip}:${s.voice}`, () => genLipsync(s)));
+    const clipsReady = p.shots.every((s) => s.keyframe && (!videoGen || (s.clip && !clipOutdated(s))) && !voicePending(s));
+    if (clipsReady && videoGen) needLip.filter((s) => !busy("lipsync", s.id)).forEach((s) => kick(`lip:${s.id}:${s.clip}:${s.voice}`, () => genLipsync(s)));
 
     // 7) المزيكا والمؤثرات (لو فيه مفتاح ElevenLabs)
     if (clipsReady && soundOk) {
@@ -281,7 +320,7 @@ export const FilmPanel: React.FC<{
     }
     // 8) خلص؟ صدّر
     const soundsDone = !soundOk || (!needMusic && !needSfx.length);
-    const done = clipsReady && !needLip.length && soundsDone && !(p.jobs ?? []).length;
+    const done = clipsReady && (!videoGen || !needLip.length) && soundsDone && !(p.jobs ?? []).length;
     if (done) {
       kick("export", async () => {
         try {
@@ -306,7 +345,7 @@ export const FilmPanel: React.FC<{
           ? "التعليق الصوتي"
           : needClip.length
             ? `الفيديوهات (${p.shots.length - needClip.length}/${p.shots.length})`
-            : needLip.length
+            : videoGen && needLip.length
               ? `حركة الشفايف (${needLip.length})`
               : soundOk && (needMusic || needSfx.length)
               ? "المزيكا والمؤثرات"
@@ -333,8 +372,8 @@ export const FilmPanel: React.FC<{
   ) : null;
 
   const autoButton = (
-    <button type="button" className="btn-primary btn-auto" onClick={startAuto} disabled={p.auto || !(status?.fal || status?.mock) || (!p.shots.length && !(status?.claude || status?.mock))}>
-      🚀 اعمل كل حاجة لوحدك (~{status?.mock ? "مجاني" : money(autoEstimate())})
+    <button type="button" className="btn-primary btn-auto" onClick={startAuto} disabled={p.auto || !imagesOk || (!p.shots.length && !(status?.claude || status?.mock) && !freePlanReady)}>
+      🚀 اعمل كل حاجة لوحدك ({status?.mock || autoEstimate() === 0 ? "مجاني" : `~${money(autoEstimate())}`})
     </button>
   );
 
@@ -352,8 +391,11 @@ export const FilmPanel: React.FC<{
           {status.mock && <span className="mock">وضع تجربة</span>}
         </div>
       )}
-      {status && (!status.claude || !status.fal) && !status.mock && (
-        <KeyHint>محتاج مفاتيح Claude (السيناريو) و fal.ai (الصور والفيديو)، و ElevenLabs لو عايز صوت احترافي.</KeyHint>
+      {imagesFree && (
+        <div className="hint film-free-note">
+          🆓 شغال ببلاش: الصور بتتولد مجانًا، والفيديو بيبقى حركة كاميرا سينمائية على كل صورة، والصوت من الويندوز أو صوتك.
+          {!status?.claude && " السيناريو بتكتبه انت (كل سطر لقطة) والاستوديو بيختار اللقطات."} لما تشترك في fal.ai هتقدر تحوّل الصور لفيديو حقيقي بيتحرك وبيتكلم.
+        </div>
       )}
       {autoBox}
       {error && (
@@ -424,7 +466,27 @@ export const FilmPanel: React.FC<{
           </button>
         )}
 
-        <button type="button" className="btn-primary" onClick={writePlan} disabled={!p.brief.trim() || !!running("plan", "plan") || !(status?.claude || status?.mock)}>
+        {status && !status.claude && !status.mock && (
+          <div className="film-free-plan">
+            <span className="film-sub">🆓 سيناريو ببلاش: انت بتكتب الكلام، والاستوديو بيعمل الشخص واللقطات</span>
+            <label className="field">
+              <span>الشخص (شكله وسنه ولبسه)</span>
+              <textarea rows={2} value={p.freePerson ?? ""} onChange={(e) => patchFilm(() => ({ freePerson: e.target.value }))} placeholder="مثلًا: راجل مصري 30 سنة، دقنه سودا قصيرة، لابس تيشيرت أسود وساعة فضي (سيبه فاضي لو مفيش شخص)" />
+            </label>
+            <label className="field">
+              <span>المكان</span>
+              <input type="text" value={p.freePlace ?? ""} onChange={(e) => patchFilm(() => ({ freePlace: e.target.value }))} placeholder="مثلًا: مكتب شركة حديث فيه شاشة كبيرة" />
+            </label>
+            <label className="field">
+              <span>الكلام (كل سطر = لقطة)</span>
+              <textarea rows={5} value={p.freeScript ?? ""} onChange={(e) => patchFilm(() => ({ freeScript: e.target.value }))} placeholder={"دي الشاشة الرئيسية للتطبيق\nمن هنا العميل بيقدر يوصل لكل الخدمات\nوبضغطة واحدة الطلب بيتم"} />
+            </label>
+            <button type="button" className="btn-primary" onClick={() => writeFreePlan()} disabled={freeBusy || !freePlanReady}>
+              {freeBusy ? "✍️ بيكتب…" : "✍️ اعمل السيناريو واللقطات (ببلاش)"}
+            </button>
+          </div>
+        )}
+        <button type="button" className="btn-primary" onClick={writePlan} hidden={!!status && !status.claude && !status.mock} disabled={!p.brief.trim() || !!running("plan", "plan") || !(status?.claude || status?.mock)}>
           {running("plan", "plan") ? `✍️ ${stepOf("plan", "plan")}` : "✍️ اكتب السيناريو والقطات"}
         </button>
         <div className="hint">Claude بيكتب السيناريو، ويقسمه للقطات، ويحدد الشخصيات والتعليق الصوتي. ده رخيص (سنتات)، والتوليد الغالي بيبقى بعد ما تراجع.</div>
@@ -515,7 +577,7 @@ export const FilmPanel: React.FC<{
                         </select>
                       </label>
                     )}
-                    <button type="button" className="btn-small btn-ai" onClick={() => genCharacter(c)} disabled={!!running("character", c.id) || !status?.fal}>
+                    <button type="button" className="btn-small btn-ai" onClick={() => genCharacter(c)} disabled={!!running("character", c.id) || !imagesOk}>
                       {running("character", c.id) ? stepOf("character", c.id) : `🖼️ ${c.image ? "ولّد تاني" : "ولّد الصورة"} (~${money(imgCost(1))})`}
                     </button>
                   </div>
@@ -651,7 +713,7 @@ export const FilmPanel: React.FC<{
                       )}
 
                       <div className="film-actions">
-                        <button type="button" className="btn-small btn-ai" onClick={() => genKeyframe(s)} disabled={!!running("keyframe", s.id) || !status?.fal}>
+                        <button type="button" className="btn-small btn-ai" onClick={() => genKeyframe(s)} disabled={!!running("keyframe", s.id) || !imagesOk}>
                           🖼️ {s.keyframe ? "صورة تانية" : "ولّد الصورة"} (~{money(imgCost(1))})
                         </button>
                         <button type="button" className="btn-small" onClick={() => genVoice(s)} disabled={!s.voiceLine.trim() || !!running("voice", s.id) || p.voiceProvider === "recorded" || p.voiceProvider === "none"}>
@@ -726,14 +788,14 @@ export const FilmPanel: React.FC<{
               {p.music && !p.music.startsWith("demo/") && <audio src={`/${p.music}`} controls preload="none" className="asset-audio" />}
             </div>
             {needChar.length > 0 && (
-              <button type="button" className="btn-small" disabled={!status?.fal} onClick={() => bulk("صور الشخصيات", imgCost(needChar.length), needChar, () => needChar.forEach(genCharacter))}>
+              <button type="button" className="btn-small" disabled={!imagesOk} onClick={() => bulk("صور الشخصيات", imgCost(needChar.length), needChar, () => needChar.forEach(genCharacter))}>
                 1. صور الشخصيات ({needChar.length}) ~{money(imgCost(needChar.length))}
               </button>
             )}
             <button
               type="button"
               className="btn-small"
-              disabled={!needKey.length || !status?.fal}
+              disabled={!needKey.length || !imagesOk}
               onClick={() => {
                 if (needChar.length && p.shots.some((s) => s.characters.length && !s.keyframe) && !confirm("فيه شخصيات لسه ملهاش صورة، فشكلها ممكن يختلف من لقطة للتانية. تكمل؟")) return;
                 bulk("صور اللقطات", imgCost(needKey.length), needKey, () => needKey.forEach(genKeyframe));

@@ -35,6 +35,12 @@ export const KEYS = [
     use: "لقطات B-roll حقيقية مجانية (بدل ما تولّدها بفلوس)",
     url: "https://www.pexels.com/api/",
   },
+  {
+    id: "POLLINATIONS_TOKEN",
+    name: "Pollinations (مجاني)",
+    use: "صور الأشخاص واللقطات ببلاش من غير انتظار. من غيره بتشتغل برضو بس صورة كل دقيقة تقريبًا",
+    url: "https://enter.pollinations.ai",
+  },
 ];
 
 const ids = new Set(KEYS.map((k) => k.id));
@@ -144,6 +150,12 @@ export const createKeyStore = ({ envFile, onChange }) => {
         if (r.status === 200) return { ok: true, message: "شغال ✓" };
         if (r.status === 401 || r.status === 403) return { ok: false, message: "المفتاح غلط" };
         return { ok: false, message: `Pexels رجّع ${r.status}` };
+      }
+      if (id === "POLLINATIONS_TOKEN") {
+        const r = await ask("https://image.pollinations.ai/prompt/test?width=64&height=64&nologo=true", { Authorization: `Bearer ${key}` });
+        if (r.status === 200) return { ok: true, message: "شغال ✓" };
+        if (r.status === 401 || r.status === 403) return { ok: false, message: "المفتاح غلط" };
+        return { ok: false, message: `Pollinations رجّع ${r.status}` };
       }
       return { ok: false, message: "مفتاح مش معروف" };
     } catch {

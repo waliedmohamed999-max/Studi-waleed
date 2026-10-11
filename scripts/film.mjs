@@ -10,6 +10,7 @@ import { fal, ApiError, ValidationError } from "@fal-ai/client";
 import { MODELS } from "./models.mjs";
 import { ffmpegPath, transcribeFile, whisperStatus } from "./whisper.mjs";
 import { tryRemove } from "./fsutil.mjs";
+import { freeImage, FreeError, seedOf, translateMany } from "./free.mjs";
 
 const isMock = () => process.env.AI_MOCK === "1";
 export class FilmError extends Error {}
@@ -22,7 +23,18 @@ export const filmStatus = () => ({
   fal: isMock() || !!process.env.FAL_KEY,
   elevenlabs: !!process.env.ELEVENLABS_API_KEY,
   mock: isMock(),
+  // من غير fal.ai: الصور بتتولد ببلاش (Pollinations)، والفيديو بيبقى حركة كاميرا على الصورة
+  free: true,
 });
+const useFree = () => !isMock() && !process.env.FAL_KEY;
+const freeImg = async (args) => {
+  try {
+    const [prompt] = await translateMany([args.prompt]);
+    return await freeImage({ ...args, prompt });
+  } catch (e) {
+    throw e instanceof FreeError ? new FilmError(e.message) : e;
+  }
+};
 
 // بنعيد الإعداد لو المفتاح اتغير من الإعدادات
 let falKey = null;
@@ -159,6 +171,16 @@ export const createFilm = ({ publicDir }) => {
     const dir = dirFor(projectId);
     const dest = path.join(dir, `char-${safeId(character.id)}-${stamp()}.jpg`);
     if (isMock()) return { image: rel(mockPng(dest.replace(/\.jpg$/, ".png"), 540, 720, character.id.length + 3)) };
+    if (useFree()) {
+      await freeImg({
+        prompt: `Photorealistic character reference portrait. ${character.description}. Waist-up, facing the camera, neutral expression, plain soft grey studio background, soft key light, 85mm lens, detailed natural skin. ${style}. No text, no watermark.`,
+        size: "ref",
+        seed: seedOf(`${projectId}:${character.id}`),
+        dest,
+        onProgress,
+      });
+      return { image: rel(dest) };
+    }
     const data = await callFal(
       MODELS.image.text,
       {
@@ -184,6 +206,20 @@ export const createFilm = ({ publicDir }) => {
     if (isMock()) {
       const [w, h] = mockSize(format);
       return { keyframe: rel(mockPng(dest.replace(/\.jpg$/, ".png"), w, h, shot.id.charCodeAt(0) + shot.id.length)) };
+    }
+
+    if (useFree()) {
+      // الموديل المجاني مبياخدش صور مرجعية، فبنثبّت الشخص بوصفه الكامل + نفس الـ seed بتاعه في كل لقطة
+      const inShot = characters.filter((c) => shot.characters.includes(c.id));
+      const who = inShot.map((c) => `${c.name === "الشخص" ? "The person" : c.name}: ${c.description}`).join(" ");
+      await freeImg({
+        prompt: `${shot.imagePrompt}. ${who} ${style}`,
+        size: ["reel", "portrait", "square", "youtube"].includes(format) ? format : "reel",
+        seed: seedOf(`${projectId}:${inShot[0]?.id ?? shot.id}`),
+        dest,
+        onProgress,
+      });
+      return { keyframe: rel(dest) };
     }
 
     const refChars = characters.filter((c) => shot.characters.includes(c.id) && c.image);

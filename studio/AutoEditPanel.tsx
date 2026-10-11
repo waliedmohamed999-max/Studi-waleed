@@ -1,11 +1,13 @@
 // لوحة "المونتاج الأوتوماتيك": ارفع ← فرّغ ← حلّل ← راجع ← صدّر (الفيديو كامل أو مقاطع ريلز)
 import { useEffect, useMemo, useState } from "react";
 import type { Caption } from "@remotion/captions";
-import { buildSegments, outToSource, rangeToOut, refineWords, resolveRange, sourceToOut, totalMs, wordDecisions, type CutRange, type Highlight, type TimeRange } from "../src/autoedit/edl";
+import { buildSegments, cleanTranscript, findRestarts, outToSource, relinkWords, wordIndexMap, rangeToOut, refineWords, resolveRange, sourceToOut, totalMs, wordDecisions, type CutRange, type Highlight, type TimeRange } from "../src/autoedit/edl";
 import { edlInput, type AutoEditProps, type Broll } from "../src/AutoEditVideo";
 import { FaceTrack } from "./FaceTrack";
 import { BrollPanel, newBroll } from "./BrollPanel";
-import { ClipsJoin, CutoutTool, DubTool, resetForMedia } from "./AutoEditExtras";
+import { ClipsJoin, CutoutTool, DubTool, resetForMedia, useServices } from "./AutoEditExtras";
+import { TranscriptEditor } from "./TranscriptEditor";
+import { AutoPro } from "./AutoPro";
 import { EmojiTool } from "./EmojiTool";
 import { platforms } from "./platforms";
 import { AssetPicker } from "./fields";
@@ -13,6 +15,24 @@ import { sendToQueue, type ExportSettings } from "./ExportCard";
 import { useAiStatus } from "./ai";
 import { KeyHint } from "./settings";
 import { CleanAudio } from "./CleanAudio";
+import { formatForSize, formats, type FormatKey } from "../src/lib/formats";
+
+// اختيار الاتجاه: أشكال صغيرة بنفس نسبة كل مقاس
+const FormatPicker: React.FC<{ value: string; detected: FormatKey | null; onChange: (v: FormatKey) => void }> = ({ value, detected, onChange }) => (
+  <div className="format-picker" role="radiogroup" aria-label="مقاس الفيديو">
+    {(Object.keys(formats) as FormatKey[]).map((k) => {
+      const f = formats[k];
+      const scale = 34 / Math.max(f.width, f.height);
+      return (
+        <button key={k} type="button" role="radio" aria-checked={value === k} className={`format-option ${value === k ? "active" : ""}`} onClick={() => onChange(k)}>
+          <span className="format-shape" style={{ width: f.width * scale, height: f.height * scale }} />
+          <span>{f.label.replace(/ \(.*\)/, "")}</span>
+          <small>{f.label.match(/\((.*)\)/)?.[1]}{detected === k ? " · زي فيديوك" : ""}</small>
+        </button>
+      );
+    })}
+  </div>
+);
 
 type Props = Record<string, unknown>;
 const sec = (ms: number) => {
@@ -32,11 +52,13 @@ export const AutoEditPanel: React.FC<{
 }> = ({ props, updateProps, projectName, fps, frame, seek, exportSettings }) => {
   const p = props as unknown as AutoEditProps;
   const ai = useAiStatus();
+  const services = useServices();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [reelCount, setReelCount] = useState(0); // 0 = أوتوماتيك حسب طول الفيديو
   const [reelPlatform, setReelPlatform] = useState("tiktok");
+  const [detected, setDetected] = useState<FormatKey | null>(null);
 
   // ===== أول ما الفيديو يترفع: المدة + فين فيه كلام (قص السكوت بيشتغل على طول من غير تفريغ) =====
   const detectSpeech = async () => {
@@ -49,7 +71,14 @@ export const AutoEditPanel: React.FC<{
     if (!p.media) return;
     fetch(`/api/media-info?path=${encodeURIComponent(p.media)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((info) => info && Math.abs((p.mediaDuration || 0) - info.duration) > 0.01 && updateProps({ mediaDuration: info.duration }))
+      .then((info) => {
+        if (!info) return;
+        if (info.width && info.height) setDetected(formatForSize(info.width, info.height));
+        // فيديو جديد (لسه ملوش مدة): المقاس بيتظبط أوتوماتيك على اتجاهه
+        const fresh = !p.mediaDuration;
+        if (fresh || Math.abs((p.mediaDuration || 0) - info.duration) > 0.01)
+          updateProps({ mediaDuration: info.duration, ...(fresh && info.width && info.height ? { format: formatForSize(info.width, info.height) } : {}) });
+      })
       .catch(() => {});
     if (!(p.speech ?? []).length) {
       setBusy("بيدوّر على السكتات…");
@@ -59,6 +88,50 @@ export const AutoEditPanel: React.FC<{
         .finally(() => setBusy(null));
     }
   }, [p.media]);
+
+  // ===== مشروع اتفرّغ قبل التنضيف: الكلام اللي Whisper ألّفه على المزيكا بيتشال أول ما يتفتح =====
+  useEffect(() => {
+    const old = p.words ?? [];
+    if (!old.length) return;
+    const clean = cleanTranscript(old);
+    if (clean.length === old.length) return;
+    const map = wordIndexMap(old, clean);
+    updateProps((prev) => ({
+      ...prev,
+      words: clean,
+      cuts: relinkWords((prev.cuts as CutRange[]) ?? [], map),
+      emphasis: relinkWords(((prev.emphasis as (TimeRange & { fromWord?: number; toWord?: number })[]) ?? []), map),
+      highlights: relinkWords((prev.highlights as Highlight[]) ?? [], map),
+      emojis: relinkWords((prev.emojis as AutoEditProps["emojis"]) ?? [], map, true),
+      brolls: relinkWords((prev.brolls as Broll[]) ?? [], map),
+      voiceFixes: relinkWords((prev.voiceFixes as AutoEditProps["voiceFixes"]) ?? [], map, true),
+    }));
+  }, [p.words]);
+
+  // ===== لقطة B-roll من نفس الفيديو الأساسي (نسخة مرفوعة مرتين مثلًا) =====
+  // بتعرض نفس الصورة بس بتوقيت تاني، فالصوت بيبان سابق الصورة أو متأخر عنها. بتتشال لوحدها
+  const [dupeNote, setDupeNote] = useState<string | null>(null);
+  useEffect(() => {
+    const srcs = [...new Set([...(p.brolls ?? []).filter((b) => b.src && b.kind === "video").map((b) => b.src), ...(p.footage ?? [])])].filter((s) => s !== p.media);
+    if (!p.media || !srcs.length) return;
+    fetch(`/api/media/fingerprints?paths=${encodeURIComponent([p.media, ...srcs].join("|"))}`)
+      .then((r) => r.json())
+      .then((fp: Record<string, string | null>) => {
+        const main = fp[p.media];
+        const same = new Set(srcs.filter((s) => main && fp[s] === main));
+        same.add(p.media);
+        const bad = (p.brolls ?? []).filter((b) => b.src && same.has(b.src));
+        const badFootage = (p.footage ?? []).filter((f) => same.has(f));
+        if (!bad.length && !badFootage.length) return;
+        updateProps((prev) => ({
+          ...prev,
+          brolls: ((prev.brolls as Broll[]) ?? []).filter((b) => !(b.src && same.has(b.src))),
+          footage: ((prev.footage as string[]) ?? []).filter((f) => !same.has(f)),
+        }));
+        if (bad.length) setDupeNote(`اتشالت ${bad.length} لقطة B-roll كانت من نفس الفيديو الأساسي (كانت بتخلّي الصوت يبان سابق الصورة).`);
+      })
+      .catch(() => {});
+  }, [p.media, p.brolls, p.footage]);
 
   // ===== الإحصائيات =====
   const input = edlInput({ ...p, range: null });
@@ -83,7 +156,21 @@ export const AutoEditPanel: React.FC<{
         const j = await fetch(`/api/transcribe/${jobId}`).then((x) => x.json());
         if (j.status === "done") {
           const speech = (p.speech ?? []).length ? p.speech : await detectSpeech();
-          updateProps({ words: j.captions as Caption[], speech, cuts: [], emphasis: [], highlights: [], range: null });
+          // الكلام اللي Whisper ألّفه على المزيكا بيتشال، والجمل المتعادة بتتقص أوتوماتيك (من غير Claude)
+          const clean = cleanTranscript(j.captions as Caption[]);
+          // الإيموجي واللقطات المربوطة بكلمات بتتنقل مع كلمتها في التفريغ الجديد
+          const map = wordIndexMap(p.words ?? [], clean);
+          updateProps({
+            words: clean,
+            speech,
+            cuts: findRestarts(clean),
+            emphasis: [],
+            highlights: [],
+            range: null,
+            voiceFixes: [],
+            emojis: relinkWords(p.emojis ?? [], map, true),
+            brolls: relinkWords(p.brolls ?? [], map),
+          });
           break;
         }
         if (j.status === "error") throw new Error(j.error);
@@ -193,7 +280,20 @@ export const AutoEditPanel: React.FC<{
           value={p.media}
           onChange={(v) => updateProps({ ...resetForMedia(v), clips: p.clips ?? [] })}
         />
+        {p.media && (
+          <>
+            <span className="hint">مقاس الفيديو اللي هيطلع:</span>
+            <FormatPicker value={p.format} detected={detected} onChange={(format) => updateProps({ format })} />
+            {detected && detected !== p.format && <div className="hint">فيديوك {detected === "youtube" ? "عرضي" : detected === "square" ? "مربع" : "طولي"}، فهيتقص من الأطراف عشان يملا المقاس ده (والكادر بيتبع الوش لو عملت تتبع الوش).</div>}
+          </>
+        )}
         {p.media && <ClipsJoin p={p} update={(x) => updateProps(x)} />}
+        {p.media && (
+          <details className="subpanel autopro" open>
+            <summary>🎬 مونتاج احترافي بضغطة (من غير أي تدخل)</summary>
+            <AutoPro p={p} update={(x) => updateProps(x)} onDone={() => seek(0)} />
+          </details>
+        )}
         <div className="hint">صوّر نفسك وانت بتتكلم عادي، حتى لو غلطت أو سكتّ أو عدت جملة. الاستوديو هيشيل ده كله.</div>
         {p.media && <CleanAudio media={p.media} clean={p.cleanAudio} onChange={(v) => updateProps({ cleanAudio: v })} />}
         {p.media && (
@@ -382,26 +482,26 @@ export const AutoEditPanel: React.FC<{
         </div>
       )}
 
-      {/* الكلام كله: المشطوب اتشال */}
+      {/* الكلام كله: تعديل الكتابة والصوت، والمشطوب اتشال */}
       {p.words.length > 0 && (
-        <details className="ae-step">
-          <summary className="ae-step-title">النص بعد المونتاج</summary>
-          <div className="hint">المشطوب اتشال. اضغط على أي كلمة تروح لها في الفيديو.</div>
-          <div className="ae-transcript" dir="rtl">
-            {words.slice(0, 3000).map((w, i) => (
-              <span
-                key={i}
-                className={`ae-word ${decisions[i]}`}
-                onClick={() => decisions[i] === "keep" && goToWord(w)}
-                title={decisions[i] === "filler" ? "إمم/آآ" : decisions[i] === "cut" ? "Claude شاله" : ""}
-              >
-                {w.text.trim()}{" "}
-              </span>
-            ))}
-          </div>
+        <details className="ae-step" open>
+          <summary className="ae-step-title">✏️ النص: صلّح الكابشن أو الصوت</summary>
+          <TranscriptEditor
+            p={p}
+            words={words}
+            decisions={decisions}
+            update={(fn) => updateProps((prev) => ({ ...prev, ...fn(prev as unknown as AutoEditProps) }))}
+            goToWord={goToWord}
+            canRevoice={!!(services?.elevenlabs || services?.mock)}
+          />
         </details>
       )}
 
+      {dupeNote && (
+        <div className="flash" onClick={() => setDupeNote(null)}>
+          {dupeNote}
+        </div>
+      )}
       {busy && <div className="job-status">⏳ {busy}</div>}
       {error && <div className="error">{error}</div>}
     </div>

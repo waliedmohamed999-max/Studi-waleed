@@ -88,6 +88,10 @@ export type FilmProps = {
   auto: boolean; // "اعمل كل حاجة" شغال (بيكمل حتى لو الصفحة اتقفلت واتفتحت)
   autoBatch: string; // رقم دفعة التصدير لما الوضع الأوتوماتيك يخلص
   soundFx: SoundFxItem[]; // مؤثرات صوتية إضافية في لحظات معينة
+  // السيناريو المجاني (من غير Claude): وصف الشخص والمكان، والكلام (كل سطر لقطة)
+  freePerson?: string;
+  freePlace?: string;
+  freeScript?: string;
 };
 
 export const emptyShot = (id: string): FilmShot => ({

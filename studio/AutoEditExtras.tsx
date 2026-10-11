@@ -10,7 +10,7 @@ const money = (n: number) => `$${n.toFixed(n < 1 ? 2 : 1)}`;
 const short = (p: string) => p.split("/").pop()?.replace(/^[a-z0-9]+-(?=.)/, "") ?? p;
 
 // حالة الخدمات (عشان نعرف الزرار يشتغل ولا محتاج مفتاح)
-const useServices = () => {
+export const useServices = () => {
   const keys = useKeysVersion();
   const [s, setS] = useState<{ fal: boolean; elevenlabs: boolean; mock: boolean } | null>(null);
   useEffect(() => {
@@ -42,6 +42,7 @@ export const resetForMedia = (media: string): Partial<AutoEditProps> => ({
   dubWords: [],
   dubVideo: "",
   useDub: "off",
+  voiceFixes: [],
 });
 
 // ===== كذا كليب ← فيديو واحد =====
